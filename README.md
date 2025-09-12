@@ -1,0 +1,1 @@
+An end-to-end data engineering platform that builds scalable ETL pipelines to extract, transform, and analyze job market data from multiple sources, showcasing modern data engineering practices and real-time analytics capabilities.
