@@ -3,6 +3,7 @@ from airflow import DAG
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.providers.standard.operators.bash import BashOperator
 
+# 定義 Python 函數
 def hello_world():
     print("Hello World from Airflow!")
     print(f"當前時間: {datetime.now()}")
