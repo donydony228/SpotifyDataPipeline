@@ -3,3 +3,4 @@ simple_auth_manager_passwords.json.generated
 logs
 airflow.cfg
 us-job-env/
+.env
