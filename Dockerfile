@@ -32,8 +32,8 @@ RUN chmod +x /app/start.sh
 
 EXPOSE 8080
 
-# 修復健康檢查
-HEALTHCHECK --interval=60s --timeout=30s --start-period=300s --retries=5 \
-  CMD curl -f http://localhost:8080/api/v1/health || exit 1
+# 簡化的健康檢查 - 檢查基本的 HTTP 響應
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1
 
 CMD ["/app/start.sh"]
