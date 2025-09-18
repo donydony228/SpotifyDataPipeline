@@ -1,3 +1,9 @@
+#!/bin/bash
+
+echo "🔧 修復 Railway 部署配置..."
+
+# 1. 更新 Dockerfile
+cat > Dockerfile << 'EOF'
 FROM python:3.9-slim
 
 WORKDIR /app
@@ -37,3 +43,4 @@ HEALTHCHECK --interval=60s --timeout=30s --start-period=300s --retries=5 \
   CMD curl -f http://localhost:8080/api/v1/health || exit 1
 
 CMD ["/app/start.sh"]
+EOF
