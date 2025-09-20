@@ -1,4 +1,12 @@
 #!/bin/bash
+# scripts/render_supabase_only.sh
+# Render 部署 - 強制使用 Supabase，不提供 SQLite 備用方案
+
+echo "🎯 Render + Supabase 強制連線版本"
+
+# 1. 更新啟動腳本 - 只支援 Supabase
+cat > scripts/render_start.sh << 'EOF'
+#!/bin/bash
 echo "🚀 Render + Supabase 部署"
 echo "========================="
 
@@ -157,3 +165,111 @@ echo "📊 資料庫: Supabase PostgreSQL"
 
 # 前景執行 webserver，讓容器保持運行
 exec airflow webserver --port 8080 --hostname 0.0.0.0
+EOF
+
+chmod +x scripts/render_start.sh
+
+# 2. 更新 Dockerfile - 移除不必要的複雜度
+cat > Dockerfile << 'EOF'
+FROM python:3.9-slim
+
+WORKDIR /app
+
+# 安裝系統依賴
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    curl \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安裝 Python 依賴
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# 複製應用程式檔案
+COPY dags/ ./dags/
+COPY src/ ./src/
+COPY config/ ./config/
+COPY sql/ ./sql/
+COPY scripts/ ./scripts/
+
+# 建立必要目錄
+RUN mkdir -p /app/logs /app/data /app/airflow_home
+
+# 設定環境變數
+ENV AIRFLOW_HOME=/app/airflow_home
+ENV AIRFLOW__CORE__LOAD_EXAMPLES=False
+ENV AIRFLOW__CORE__EXECUTOR=LocalExecutor
+ENV AIRFLOW__LOGGING__LOGGING_LEVEL=INFO
+
+# 複製啟動腳本
+COPY scripts/render_start.sh /app/start.sh
+RUN chmod +x /app/start.sh
+
+# 暴露端口
+EXPOSE 8080
+
+# 健康檢查 - 檢查 Airflow Webserver
+HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=5 \
+  CMD curl -f http://localhost:8080/health || exit 1
+
+# 啟動命令
+CMD ["/app/start.sh"]
+EOF
+
+# 3. 更新環境變數說明
+cat > render_environment_variables.txt << 'ENVEOF'
+# Render 環境變數設定 - Supabase 專用版本
+# 在 Render Dashboard > Environment 頁面設定這些變數
+
+# ===== 必要設定 =====
+
+# Airflow 核心設定
+AIRFLOW__CORE__EXECUTOR=LocalExecutor
+AIRFLOW__CORE__LOAD_EXAMPLES=False
+AIRFLOW__LOGGING__LOGGING_LEVEL=INFO
+AIRFLOW__CORE__FERNET_KEY=render-fernet-key-32-chars-long!!
+AIRFLOW__WEBSERVER__SECRET_KEY=render-secret-key
+
+# ===== 資料庫連線 (必須設定) =====
+
+# Supabase PostgreSQL (必須設定，否則啟動失敗)
+SUPABASE_DB_URL=postgresql://postgres:[你的密碼]@db.xxx.supabase.co:5432/postgres
+
+# MongoDB Atlas (可選)
+MONGODB_ATLAS_URL=mongodb+srv://[用戶名]:[密碼]@xxx.mongodb.net/?retryWrites=true&w=majority
+MONGODB_ATLAS_DB_NAME=job_market_data
+
+# ===== 部署標記 =====
+ENVIRONMENT=production
+DEPLOYMENT_PLATFORM=render
+
+# ===== 重要說明 =====
+# 1. SUPABASE_DB_URL 是必須的，沒有這個變數啟動會失敗
+# 2. 請從你的本地 .env 檔案複製正確的連線字串
+# 3. 確保 Supabase 專案正常運行
+# 4. 如果連線失敗，檢查 Render 部署日誌
+ENVEOF
+
+echo ""
+echo "✅ Render + Supabase 強制連線版本準備完成！"
+echo "============================================="
+echo ""
+echo "🎯 主要變更："
+echo "  ✅ 移除 SQLite 備用方案"
+echo "  ✅ 強制要求 SUPABASE_DB_URL 環境變數"
+echo "  ✅ 詳細的連線測試和錯誤訊息"
+echo "  ✅ 啟動前必須確認 Supabase 連線成功"
+echo ""
+echo "🚀 下一步："
+echo "  1. git add ."
+echo "  2. git commit -m 'Force Supabase connection, remove SQLite fallback'"
+echo "  3. git push origin main"
+echo "  4. 在 Render 重新部署"
+echo "  5. 確保 SUPABASE_DB_URL 環境變數正確設定"
+echo ""
+echo "⚠️ 重要："
+echo "  - 必須在 Render 設定正確的 SUPABASE_DB_URL"
+echo "  - 如果 Supabase 連線失敗，容器會立即退出"
+echo "  - 這樣確保只有在 Supabase 正常時才啟動服務"

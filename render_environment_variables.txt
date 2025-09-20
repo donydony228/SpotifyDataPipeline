@@ -1,5 +1,7 @@
-# Render 環境變數設定
+# Render 環境變數設定 - Supabase 專用版本
 # 在 Render Dashboard > Environment 頁面設定這些變數
+
+# ===== 必要設定 =====
 
 # Airflow 核心設定
 AIRFLOW__CORE__EXECUTOR=LocalExecutor
@@ -8,11 +10,21 @@ AIRFLOW__LOGGING__LOGGING_LEVEL=INFO
 AIRFLOW__CORE__FERNET_KEY=render-fernet-key-32-chars-long!!
 AIRFLOW__WEBSERVER__SECRET_KEY=render-secret-key
 
-# 部署標記
+# ===== 資料庫連線 (必須設定) =====
+
+# Supabase PostgreSQL (必須設定，否則啟動失敗)
+SUPABASE_DB_URL=postgresql://postgres:[你的密碼]@db.xxx.supabase.co:5432/postgres
+
+# MongoDB Atlas (可選)
+MONGODB_ATLAS_URL=mongodb+srv://[用戶名]:[密碼]@xxx.mongodb.net/?retryWrites=true&w=majority
+MONGODB_ATLAS_DB_NAME=job_market_data
+
+# ===== 部署標記 =====
 ENVIRONMENT=production
 DEPLOYMENT_PLATFORM=render
 
-# 雲端資料庫連線 (請從 .env 檔案複製實際值)
-SUPABASE_DB_URL=postgresql://postgres:ZB47ibxrw5sXcMzw@db.mzxadnjwgexlvhgleuwm.supabase.co:5432/postgres
-MONGODB_ATLAS_URL=mongodb+srv://job_data_user:WzVn9XpHNL9bWR74@job-data-cluster.2o5gazq.mongodb.net/?retryWrites=true&w=majority&appName=job-data-cluster
-MONGODB_ATLAS_DB_NAME=job_market_data
+# ===== 重要說明 =====
+# 1. SUPABASE_DB_URL 是必須的，沒有這個變數啟動會失敗
+# 2. 請從你的本地 .env 檔案複製正確的連線字串
+# 3. 確保 Supabase 專案正常運行
+# 4. 如果連線失敗，檢查 Render 部署日誌

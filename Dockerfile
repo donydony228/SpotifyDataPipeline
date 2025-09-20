@@ -37,9 +37,9 @@ RUN chmod +x /app/start.sh
 # 暴露端口
 EXPOSE 8080
 
-# 健康檢查 (Render 友善)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-  CMD curl -f http://localhost:8080/health || curl -f http://localhost:8080/ || exit 1
+# 健康檢查 - 檢查 Airflow Webserver
+HEALTHCHECK --interval=30s --timeout=10s --start-period=180s --retries=5 \
+  CMD curl -f http://localhost:8080/health || exit 1
 
 # 啟動命令
 CMD ["/app/start.sh"]
