@@ -1,3 +1,5 @@
+version: '3.8'
+
 x-common-env: &common-env
   AIRFLOW__CORE__EXECUTOR: LocalExecutor
   AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres-airflow:5432/airflow
@@ -106,8 +108,6 @@ services:
       _AIRFLOW_WWW_USER_USERNAME: admin
       _AIRFLOW_WWW_USER_PASSWORD: admin123
       _AIRFLOW_WWW_USER_EMAIL: admin@jobdata.com
-    env_file:
-      - .env
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/src
@@ -129,8 +129,6 @@ services:
         condition: service_completed_successfully
     environment:
       <<: *common-env
-    env_file:
-      - .env
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/src
@@ -158,8 +156,6 @@ services:
         condition: service_completed_successfully
     environment:
       <<: *common-env
-    env_file:
-      - .env
     volumes:
       - ./dags:/opt/airflow/dags
       - ./src:/opt/airflow/src
