@@ -1,4 +1,4 @@
-.PHONY: help start stop logs test lint format env-setup cloud-test cloud-status
+.PHONY: help start stop logs restart env-setup venv-setup generate-fernet cloud-status dag-test clean-logs clean-db clean-pyc clean-all dev-start dev-status info
 
 help: ## 顯示幫助訊息
 	@echo 'US Job Data Engineering Platform - 本地虛擬環境版本'
@@ -58,52 +58,39 @@ generate-fernet: ## 生成新的 Fernet Key
 	@echo "   AIRFLOW__CORE__FERNET_KEY=<上面的 Key>"
 
 # ============================================================================
-# 雲端連接測試
+# 雲端狀態監控
 # ============================================================================
-
-cloud-test-supabase: ## 測試 Supabase 連接
-	@echo "🔗 測試 Supabase 連接..."
-	@source venv/bin/activate && python test_supabase.py
-
-cloud-test-mongodb: ## 測試 MongoDB Atlas 連接
-	@echo "🔗 測試 MongoDB Atlas 連接..."
-	@source venv/bin/activate && python test_mongodb.py
-
-cloud-test: ## 測試所有雲端連接
-	@echo "🧪 測試所有雲端連接..."
-	@make cloud-test-supabase
-	@echo ""
-	@make cloud-test-mongodb
 
 cloud-status: ## 顯示雲端資源狀態
 	@echo "🌐 雲端資源狀態"
 	@echo "========================="
 	@echo ""
 	@echo "📊 PostgreSQL (Supabase):"
-	@source venv/bin/activate && python -c "import psycopg2, os; from dotenv import load_dotenv; load_dotenv(); conn = psycopg2.connect(os.getenv('SUPABASE_DB_URL')); cur = conn.cursor(); cur.execute('SELECT schemaname, COUNT(*) FROM pg_tables WHERE schemaname IN (\"raw_staging\", \"clean_staging\", \"business_staging\", \"dwh\") GROUP BY schemaname ORDER BY schemaname'); print('\\n'.join(f'  ✅ {row[0]}: {row[1]} tables' for row in cur.fetchall())); conn.close()" 2>/dev/null || echo "  ❌ 連接失敗"
+	@source venv/bin/activate && python -c "import psycopg2, os; from dotenv import load_dotenv; load_dotenv(); conn = psycopg2.connect(os.getenv('SUPABASE_DB_URL')); cur = conn.cursor(); cur.execute('SELECT schemaname, COUNT(*) FROM pg_tables WHERE schemaname IN ($$raw_staging$$, $$clean_staging$$, $$business_staging$$, $$dwh$$) GROUP BY schemaname ORDER BY schemaname'); print('\\n'.join(f'  ✅ {row[0]}: {row[1]} tables' for row in cur.fetchall())); conn.close()" 2>/dev/null || echo "  ❌ 連接失敗"
 	@echo ""
 	@echo "🍃 MongoDB (Atlas):"
 	@source venv/bin/activate && python -c "from pymongo import MongoClient; from pymongo.server_api import ServerApi; import os; from dotenv import load_dotenv; load_dotenv(); client = MongoClient(os.getenv('MONGODB_ATLAS_URL'), server_api=ServerApi('1')); db = client.get_database(); collections = db.list_collection_names(); print(f'  ✅ Collections: {len(collections)}'); print(f'  📦 {collections}'); client.close()" 2>/dev/null || echo "  ❌ 連接失敗"
 
 # ============================================================================
-# 開發工具
+# DAG 管理
 # ============================================================================
-
-test: ## 運行測試
-	@echo "🧪 運行測試..."
-	@source venv/bin/activate && pytest tests/ -v
-
-lint: ## 代碼檢查
-	@echo "🔍 運行 linting..."
-	@source venv/bin/activate && flake8 dags/ --max-line-length=120
-
-format: ## 格式化代碼
-	@echo "🎨 格式化代碼..."
-	@source venv/bin/activate && black dags/
 
 dag-test: ## 測試 DAG 語法
 	@echo "🔍 測試 DAG 語法..."
 	@source venv/bin/activate && python -c "from airflow.models import DagBag; dagbag = DagBag(dag_folder='dags/'); print(f'✅ 找到 {len(dagbag.dags)} 個 DAGs'); print(f'❌ 錯誤: {len(dagbag.import_errors)}'); [print(f'  - {filename}: {error}') for filename, error in dagbag.import_errors.items()]"
+
+dag-list: ## 列出所有 DAGs
+	@echo "📋 DAG 列表："
+	@source venv/bin/activate && cd airflow_home && airflow dags list
+
+dag-info: ## 顯示指定 DAG 的詳細資訊
+	@echo "💡 Usage: make dag-info DAG_ID=your_dag_id"
+	@if [ -z "$(DAG_ID)" ]; then \
+		echo "❌ 請指定 DAG_ID"; \
+		echo "例如: make dag-info DAG_ID=linkedin_mock_scraper_final"; \
+	else \
+		source venv/bin/activate && cd airflow_home && airflow dags show $(DAG_ID); \
+	fi
 
 # ============================================================================
 # 清理
@@ -175,6 +162,7 @@ info: ## 顯示專案資訊
 	@echo "  - DAGs: dags/"
 	@echo "  - 環境變數: .env"
 	@echo "  - Airflow Home: airflow_home/"
+	@echo "  - 虛擬環境: venv/"
 	@echo ""
 	@echo "🌐 雲端服務:"
 	@echo "  - PostgreSQL: Supabase"
@@ -183,5 +171,6 @@ info: ## 顯示專案資訊
 	@echo "💡 常用指令:"
 	@echo "  make dev-start   - 快速啟動開發環境"
 	@echo "  make dev-status  - 檢查環境狀態"
-	@echo "  make cloud-test  - 測試雲端連接"
+	@echo "  make cloud-status - 檢查雲端連接"
+	@echo "  make dag-list    - 列出所有 DAGs"
 	@echo "  make help        - 顯示所有指令"
