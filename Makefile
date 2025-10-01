@@ -1,179 +1,187 @@
-.PHONY: help start stop restart logs test lint format clean cloud-setup cloud-test
+.PHONY: help start stop logs test lint format env-setup cloud-test cloud-status
 
-help: ## Show this help message
-	@echo 'US Job Data Engineering Platform'
+help: ## 顯示幫助訊息
+	@echo 'US Job Data Engineering Platform - 本地虛擬環境版本'
 	@echo ''
 	@echo 'Usage: make [target]'
 	@echo ''
 	@echo 'Targets:'
-	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-25s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 # ============================================================================
-# 本地開發環境
+# 本地開發環境（虛擬環境）
 # ============================================================================
 
-start: ## Start all services with Docker
-	@./start_docker.sh
+start: ## 啟動 Airflow（本地模式）
+	@echo "🚀 啟動 Airflow 本地開發環境..."
+	@./airflow_start.sh
 
-stop: ## Stop all services
-	@./stop_docker.sh
+stop: ## 停止 Airflow
+	@echo "🛑 停止 Airflow..."
+	@./stop_airflow.sh
 
-restart: ## Restart all services
-	@docker compose restart
+logs: ## 顯示 Airflow logs
+	@echo "📜 Airflow Logs:"
+	@tail -f airflow_home/logs/scheduler/latest/*.log 2>/dev/null || echo "No logs found"
 
-logs: ## Show logs for all services
-	@./logs_docker.sh
-
-logs-airflow: ## Show Airflow logs only
-	@./logs_docker.sh airflow
-
-status: ## Show service status
-	@docker compose ps
+restart: ## 重啟 Airflow
+	@make stop
+	@sleep 2
+	@make start
 
 # ============================================================================
-# 雲端遷移
+# 環境設置
 # ============================================================================
 
-cloud-setup: ## Complete cloud migration setup
-	@echo "🚀 Starting complete cloud migration..."
-	@chmod +x scripts/complete_cloud_migration.sh
-	@./scripts/complete_cloud_migration.sh
+env-setup: ## 從範本創建 .env 文件
+	@if [ ! -f .env ]; then \
+		cp .env.example .env; \
+		echo "📝 已從範本創建 .env 文件"; \
+		echo "⚠️  請編輯 .env 填入你的憑證"; \
+	else \
+		echo "✅ .env 文件已存在"; \
+	fi
 
-cloud-test-supabase: ## Test Supabase connection only
-	@echo "🔗 Testing Supabase connection..."
-	@python scripts/test_supabase_connection.py
+venv-setup: ## 設置 Python 虛擬環境
+	@echo "🐍 創建 Python 虛擬環境..."
+	@python3 -m venv venv
+	@./venv/bin/pip install --upgrade pip
+	@./venv/bin/pip install -r requirements.txt
+	@echo "✅ 虛擬環境設置完成"
+	@echo "💡 啟動虛擬環境: source venv/bin/activate"
 
-cloud-test-mongodb: ## Test MongoDB Atlas connection only
-	@echo "🔗 Testing MongoDB Atlas connection..."
-	@python scripts/test_mongodb_atlas.py
+generate-fernet: ## 生成新的 Fernet Key
+	@echo "🔑 生成新的 Fernet Key..."
+	@python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+	@echo ""
+	@echo "💡 請將此 Key 添加到 .env 文件中："
+	@echo "   AIRFLOW__CORE__FERNET_KEY=<上面的 Key>"
 
-cloud-test: ## Test all cloud connections
-	@echo "🧪 Testing all cloud connections..."
-	@python scripts/test_supabase_connection.py
-	@python scripts/test_mongodb_atlas.py
-	@python scripts/integration_test.py
+# ============================================================================
+# 雲端連接測試
+# ============================================================================
 
-cloud-deploy-schema: ## Deploy schema to Supabase
-	@echo "🏗️  Deploying schema to Supabase..."
-	@python scripts/deploy_to_supabase.py
+cloud-test-supabase: ## 測試 Supabase 連接
+	@echo "🔗 測試 Supabase 連接..."
+	@source venv/bin/activate && python test_supabase.py
 
-cloud-migrate-data: ## Migrate test data to cloud
-	@echo "📊 Migrating data to cloud..."
-	@python scripts/migrate_test_data_to_supabase.py
-	@python scripts/migrate_to_mongodb_atlas.py
+cloud-test-mongodb: ## 測試 MongoDB Atlas 連接
+	@echo "🔗 測試 MongoDB Atlas 連接..."
+	@source venv/bin/activate && python test_mongodb.py
 
-cloud-verify: ## Verify cloud deployments
-	@echo "✅ Verifying cloud deployments..."
-	@python scripts/verify_supabase_deployment.py
-	@python scripts/verify_mongodb_atlas.py
+cloud-test: ## 測試所有雲端連接
+	@echo "🧪 測試所有雲端連接..."
+	@make cloud-test-supabase
+	@echo ""
+	@make cloud-test-mongodb
 
-cloud-status: ## Show cloud resources status
-	@echo "🌐 Cloud Resources Status"
+cloud-status: ## 顯示雲端資源狀態
+	@echo "🌐 雲端資源狀態"
 	@echo "========================="
 	@echo ""
 	@echo "📊 PostgreSQL (Supabase):"
-	@python -c "import psycopg2, os; from dotenv import load_dotenv; load_dotenv(); conn = psycopg2.connect(host=os.getenv('SUPABASE_DB_HOST'), port=os.getenv('SUPABASE_DB_PORT', 5432), database=os.getenv('SUPABASE_DB_NAME'), user=os.getenv('SUPABASE_DB_USER'), password=os.getenv('SUPABASE_DB_PASSWORD')); cur = conn.cursor(); cur.execute('SELECT COUNT(*) FROM dwh.fact_jobs'); print(f'  ✅ Jobs: {cur.fetchone()[0]}'); conn.close()" 2>/dev/null || echo "  ❌ Connection failed"
+	@source venv/bin/activate && python -c "import psycopg2, os; from dotenv import load_dotenv; load_dotenv(); conn = psycopg2.connect(os.getenv('SUPABASE_DB_URL')); cur = conn.cursor(); cur.execute('SELECT schemaname, COUNT(*) FROM pg_tables WHERE schemaname IN (\"raw_staging\", \"clean_staging\", \"business_staging\", \"dwh\") GROUP BY schemaname ORDER BY schemaname'); print('\\n'.join(f'  ✅ {row[0]}: {row[1]} tables' for row in cur.fetchall())); conn.close()" 2>/dev/null || echo "  ❌ 連接失敗"
 	@echo ""
 	@echo "🍃 MongoDB (Atlas):"
-	@python -c "from pymongo import MongoClient; from pymongo.server_api import ServerApi; import os; from dotenv import load_dotenv; load_dotenv(); client = MongoClient(os.getenv('MONGODB_ATLAS_URL'), server_api=ServerApi('1')); db = client[os.getenv('MONGODB_ATLAS_DB_NAME', 'job_market_data')]; print(f'  ✅ Raw Jobs: {db[\"raw_jobs_data\"].count_documents({})}'); client.close()" 2>/dev/null || echo "  ❌ Connection failed"
+	@source venv/bin/activate && python -c "from pymongo import MongoClient; from pymongo.server_api import ServerApi; import os; from dotenv import load_dotenv; load_dotenv(); client = MongoClient(os.getenv('MONGODB_ATLAS_URL'), server_api=ServerApi('1')); db = client.get_database(); collections = db.list_collection_names(); print(f'  ✅ Collections: {len(collections)}'); print(f'  📦 {collections}'); client.close()" 2>/dev/null || echo "  ❌ 連接失敗"
 
 # ============================================================================
 # 開發工具
 # ============================================================================
 
-test: ## Run tests
-	@echo "🧪 Running tests..."
-	@pytest tests/ -v
+test: ## 運行測試
+	@echo "🧪 運行測試..."
+	@source venv/bin/activate && pytest tests/ -v
 
-lint: ## Run linting
-	@echo "🔍 Running linting..."
-	@flake8 src/ dags/ tests/
+lint: ## 代碼檢查
+	@echo "🔍 運行 linting..."
+	@source venv/bin/activate && flake8 dags/ --max-line-length=120
 
-format: ## Format code with black
-	@echo "🎨 Formatting code..."
-	@black src/ dags/ tests/
+format: ## 格式化代碼
+	@echo "🎨 格式化代碼..."
+	@source venv/bin/activate && black dags/
 
-clean: ## Stop services and clean up
-	@echo "🧹 Cleaning up..."
-	@docker compose down -v
-	@docker system prune -f
-
-build: ## Build or rebuild services
-	@docker compose build
+dag-test: ## 測試 DAG 語法
+	@echo "🔍 測試 DAG 語法..."
+	@source venv/bin/activate && python -c "from airflow.models import DagBag; dagbag = DagBag(dag_folder='dags/'); print(f'✅ 找到 {len(dagbag.dags)} 個 DAGs'); print(f'❌ 錯誤: {len(dagbag.import_errors)}'); [print(f'  - {filename}: {error}') for filename, error in dagbag.import_errors.items()]"
 
 # ============================================================================
-# 資料庫管理
+# 清理
 # ============================================================================
 
-shell-airflow: ## Open shell in Airflow container
-	@docker compose exec airflow-webserver bash
+clean-logs: ## 清理 Airflow logs
+	@echo "🧹 清理 Airflow logs..."
+	@rm -rf airflow_home/logs/*
+	@echo "✅ Logs 已清理"
 
-shell-postgres: ## Connect to local PostgreSQL
-	@docker compose exec postgres-dwh psql -U dwh_user -d job_data_warehouse
+clean-db: ## 清理本地 SQLite 資料庫
+	@echo "🧹 清理本地資料庫..."
+	@rm -f airflow.db
+	@rm -f airflow_home/airflow.db
+	@echo "✅ 本地資料庫已清理"
 
-shell-mongodb: ## Connect to local MongoDB
-	@docker compose exec mongodb mongosh -u admin -p admin123
+clean-pyc: ## 清理 Python 編譯文件
+	@echo "🧹 清理 Python 編譯文件..."
+	@find . -type f -name '*.pyc' -delete
+	@find . -type d -name '__pycache__' -delete
+	@echo "✅ Python 編譯文件已清理"
 
-# ============================================================================
-# 本地資料檢查
-# ============================================================================
-
-check-local-data: ## Check local database data
-	@echo "📊 Local Data Status"
-	@echo "==================="
-	@echo ""
-	@echo "🐘 PostgreSQL:"
-	@docker compose exec postgres-dwh psql -U dwh_user -d job_data_warehouse -c "SELECT 'raw_staging' as stage, COUNT(*) FROM raw_staging.linkedin_jobs_raw UNION ALL SELECT 'clean_staging', COUNT(*) FROM clean_staging.jobs_unified UNION ALL SELECT 'business_staging', COUNT(*) FROM business_staging.jobs_final UNION ALL SELECT 'dwh_fact_jobs', COUNT(*) FROM dwh.fact_jobs;" 2>/dev/null || echo "  ❌ Local PostgreSQL not accessible"
-	@echo ""
-	@echo "🍃 MongoDB:"
-	@docker compose exec mongodb mongosh --quiet --eval "use job_market_data; print('  ✅ Raw Jobs: ' + db.raw_jobs_data.countDocuments())" 2>/dev/null || echo "  ❌ Local MongoDB not accessible"
+clean-all: clean-logs clean-db clean-pyc ## 清理所有臨時文件
+	@echo "✅ 所有臨時文件已清理"
 
 # ============================================================================
-# 快速設定
+# 快速指令
 # ============================================================================
 
-quick-start: ## Quick start for development
-	@echo "⚡ Quick Start - US Job Data Engineering"
-	@echo "========================================"
-	@make start
-	@sleep 30
-	@make check-local-data
-	@echo ""
-	@echo "🌐 Access URLs:"
-	@echo "  📊 Airflow UI:    http://localhost:8080 (admin/admin123)"
-	@echo "  🗄️  MinIO Console: http://localhost:9001 (minioadmin/minioadmin123)"
-	@echo "  📈 Grafana:       http://localhost:3000 (admin/admin123)"
-
-env-setup: ## Setup environment file from template
-	@if [ ! -f .env ]; then \
-		cp .env.example .env; \
-		echo "📝 Created .env file from template"; \
-		echo "⚠️  Please edit .env with your cloud credentials"; \
-	else \
-		echo "✅ .env file already exists"; \
-	fi
-
-# ============================================================================
-# 完整工作流程
-# ============================================================================
-
-full-setup: ## Complete setup from scratch
-	@echo "🎯 Complete Setup - US Job Data Engineering Platform"
-	@echo "=================================================="
+dev-start: ## 開發快速啟動
+	@echo "⚡ 開發快速啟動"
+	@echo "==============="
 	@make env-setup
-	@make start
-	@sleep 30
 	@echo ""
-	@echo "✅ Local environment ready!"
-	@echo "🚀 Next steps:"
-	@echo "  1. Edit .env with cloud credentials"
-	@echo "  2. Run: make cloud-setup"
-	@echo "  3. Start developing scrapers!"
-
-dev-reset: ## Reset development environment
-	@echo "🔄 Resetting development environment..."
-	@make stop
-	@make clean
 	@make start
-	@sleep 30
-	@make check-local-data
+	@sleep 5
+	@echo ""
+	@echo "✅ Airflow 已啟動"
+	@echo "🌐 訪問 http://localhost:8080"
+	@echo "👤 用戶名: admin / 密碼: admin123"
+
+dev-status: ## 顯示開發環境狀態
+	@echo "📊 開發環境狀態"
+	@echo "==============="
+	@echo ""
+	@echo "🐍 虛擬環境:"
+	@if [ -d "venv" ]; then echo "  ✅ 已創建"; else echo "  ❌ 未創建 (運行 make venv-setup)"; fi
+	@echo ""
+	@echo "📝 環境變數:"
+	@if [ -f ".env" ]; then echo "  ✅ .env 已存在"; else echo "  ❌ .env 不存在 (運行 make env-setup)"; fi
+	@echo ""
+	@echo "🌊 Airflow:"
+	@if pgrep -f "airflow scheduler" > /dev/null; then echo "  ✅ 正在運行"; else echo "  ❌ 未運行 (運行 make start)"; fi
+	@echo ""
+	@make cloud-status
+
+# ============================================================================
+# 資訊指令
+# ============================================================================
+
+info: ## 顯示專案資訊
+	@echo "📋 US Job Data Engineering Platform"
+	@echo "===================================="
+	@echo ""
+	@echo "專案目錄: $(PWD)"
+	@echo "Python: $(shell python3 --version)"
+	@echo ""
+	@echo "📁 重要文件:"
+	@echo "  - DAGs: dags/"
+	@echo "  - 環境變數: .env"
+	@echo "  - Airflow Home: airflow_home/"
+	@echo ""
+	@echo "🌐 雲端服務:"
+	@echo "  - PostgreSQL: Supabase"
+	@echo "  - MongoDB: Atlas"
+	@echo ""
+	@echo "💡 常用指令:"
+	@echo "  make dev-start   - 快速啟動開發環境"
+	@echo "  make dev-status  - 檢查環境狀態"
+	@echo "  make cloud-test  - 測試雲端連接"
+	@echo "  make help        - 顯示所有指令"
