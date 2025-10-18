@@ -84,7 +84,7 @@ class CurlSpotifyClient:
             '-H', f'Authorization: Basic {auth_base64}',
             '-H', 'Content-Type: application/x-www-form-urlencoded',
             '-d', f'grant_type=refresh_token&refresh_token={self.refresh_token}',
-            '--max-time', '30'
+            '--max-time', '50'
         ]
         
         print("📤 執行 curl 命令...")
@@ -233,7 +233,7 @@ dag = DAG(
     'curl_spotify_tracker',
     default_args=default_args,
     description='🔧 使用 curl 的 Spotify 音樂追蹤 (解決 requests 問題)',
-    schedule='*/5 * * * *', # 每五分鐘
+    schedule='0 */2 * * *', # 每兩小時
     max_active_runs=1,
     catchup=False,
     tags=['spotify', 'curl', 'working-solution']
