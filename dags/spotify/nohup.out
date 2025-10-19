@@ -1,0 +1,5 @@
+/Users/desmond/airflow/venv/lib/python3.11/site-packages/airflow/configuration.py:859 FutureWarning: section/key [core/sql_alchemy_conn] has been deprecated, you should use[database/sql_alchemy_conn] instead. Please update your `conf.get*` call to use the new name
+/Users/desmond/airflow/venv/lib/python3.11/site-packages/airflow/configuration.py:859 FutureWarning: section/key [core/sql_alchemy_conn] has been deprecated, you should use[database/sql_alchemy_conn] instead. Please update your `conf.get*` call to use the new name
+[2025-10-17T21:02:20.671-0400] {configuration.py:2111} INFO - Creating new FAB webserver config file in: /Users/desmond/airflow/dags/spotify/airflow_home/webserver_config.py
+ERROR: You need to initialize the database. Please run `airflow db init`. Make sure the command is run using Airflow version 2.10.3.
+ERROR: You need to initialize the database. Please run `airflow db init`. Make sure the command is run using Airflow version 2.10.3.

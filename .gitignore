@@ -140,6 +140,7 @@ Thumbs.db
 *.tmp
 *.bak
 *.log
+test.ipynb
 
 # Railway 部署檔案（包含敏感資訊）
 railway_deployment_*.txt
