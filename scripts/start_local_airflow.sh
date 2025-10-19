@@ -144,8 +144,6 @@ if curl -s http://localhost:8080/health > /dev/null 2>&1; then
     echo "🎉 音樂資料工程平台已啟動！"
     echo "=============================="
     echo "🌐 Web UI: http://localhost:8080"
-    echo "👤 用戶名: admin"
-    echo "🔑 密碼: admin123"
     echo ""
     echo "📊 系統資訊:"
     echo "  • 進程 ID: $AIRFLOW_PID"

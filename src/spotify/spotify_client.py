@@ -41,10 +41,10 @@ class SpotifyClient:
         # 載入環境變數
         load_dotenv()
         
-        self.client_id = client_id or os.getenv('SPOTIFY_CLIENT_ID', '2d2343762689494080664bd26ccc898f')
-        self.client_secret = client_secret or os.getenv('SPOTIFY_CLIENT_SECRET', '987c2fe892154b788df9790a04d84f6c')
-        self.refresh_token = refresh_token or os.getenv('SPOTIFY_REFRESH_TOKEN', 'AQBk4fvESczjR30qGozNEDAe82YOJr_zJmR4Ga5_LTfTBH1xoFl1wAT4hIA9DieRyl1Vxg-Vlh9Vi2dqGf0h0iAPjIVkyPw6MjuvIAl6-02Qlh-6Bf55zKDGdhj8r7vp_F8')
-        
+        self.client_id = client_id or os.getenv('SPOTIFY_CLIENT_ID')
+        self.client_secret = client_secret or os.getenv('SPOTIFY_CLIENT_SECRET')
+        self.refresh_token = refresh_token or os.getenv('SPOTIFY_REFRESH_TOKEN')
+
         # 驗證必要參數
         if not all([self.client_id, self.client_secret, self.refresh_token]):
             missing = []
