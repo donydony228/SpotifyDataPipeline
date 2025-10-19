@@ -1,5 +1,6 @@
 # dags/spotify/curl_spotify_tracker.py
 # 使用 curl 替代 requests 的版本 - 解決 Python requests 卡住問題
+# 新增功能：批次收集 track、artist、album 詳細資訊
 
 from datetime import datetime, timedelta
 from airflow import DAG
@@ -54,6 +55,74 @@ def get_spotify_credentials():
     return client_id, client_secret, refresh_token
 
 # ============================================================================
+# MongoDB 連線
+# ============================================================================
+
+def get_mongodb_connection():
+    """取得 MongoDB 連線"""
+    mongodb_url = os.environ.get('MONGODB_ATLAS_URL')
+    db_name = os.environ.get('MONGODB_ATLAS_DB_NAME', 'music_data')
+    
+    if not mongodb_url:
+        raise ValueError("❌ 缺少 MONGODB_ATLAS_URL")
+    
+    client = MongoClient(mongodb_url, server_api=ServerApi('1'))
+    db = client[db_name]
+    return db
+
+def exists_in_mongodb(collection_name: str, spotify_id: str) -> bool:
+    """檢查 ID 是否已存在於 MongoDB"""
+    try:
+        db = get_mongodb_connection()
+        collection = db[collection_name]
+        
+        # 根據不同 collection 使用不同的 ID 欄位
+        if collection_name == 'track_details':
+            id_field = 'track_id'
+        elif collection_name == 'artist_profiles':
+            id_field = 'artist_id'
+        elif collection_name == 'album_catalog':
+            id_field = 'album_id'
+        else:
+            id_field = 'id'
+        
+        result = collection.find_one({id_field: spotify_id})
+        return result is not None
+    except Exception as e:
+        print(f"❌ 檢查 MongoDB 資料失敗: {e}")
+        return False
+
+def store_to_mongodb(collection_name: str, data: list) -> dict:
+    """批次儲存資料到 MongoDB"""
+    if not data:
+        return {"status": "no_data", "count": 0}
+    
+    try:
+        db = get_mongodb_connection()
+        collection = db[collection_name]
+        
+        # 批次插入，忽略重複
+        result = collection.insert_many(data, ordered=False)
+        
+        print(f"✅ 成功儲存 {len(result.inserted_ids)} 筆資料到 {collection_name}")
+        
+        return {
+            "status": "success",
+            "collection": collection_name,
+            "inserted_count": len(result.inserted_ids),
+            "total_attempted": len(data)
+        }
+        
+    except Exception as e:
+        print(f"❌ 儲存到 MongoDB 失敗: {e}")
+        return {
+            "status": "failed",
+            "collection": collection_name,
+            "error": str(e),
+            "total_attempted": len(data)
+        }
+
+# ============================================================================
 # 基於 curl 的 Spotify 客戶端
 # ============================================================================
 
@@ -105,138 +174,161 @@ class CurlSpotifyClient:
                     expires_in = response_data.get('expires_in', 3600)
                     
                     print(f"✅ Access Token 獲取成功!")
-                    print(f"  Token: {self.access_token[:20]}***")
-                    print(f"  有效期: {expires_in} 秒")
-                    
-                    return self.access_token
+                    print(f"🕐 Token 過期時間: {expires_in} 秒")
+                    return True
                 else:
-                    print(f"❌ 回應中沒有 access_token: {result.stdout}")
-                    raise Exception(f"Invalid response: {result.stdout}")
+                    error_msg = response_data.get('error', 'Unknown error')
+                    print(f"❌ Token 獲取失敗: {error_msg}")
+                    return False
             else:
-                print(f"❌ curl 命令失敗:")
-                print(f"  Return code: {result.returncode}")
-                print(f"  Stdout: {result.stdout}")
-                print(f"  Stderr: {result.stderr}")
-                raise Exception(f"curl failed: {result.stderr}")
+                print(f"❌ curl 執行失敗: {result.stderr}")
+                return False
                 
         except subprocess.TimeoutExpired:
-            print("❌ curl 命令超時")
-            raise Exception("curl command timeout")
+            print("❌ curl token 請求超時")
+            return False
         except json.JSONDecodeError as e:
-            print(f"❌ JSON 解析失敗: {e}")
-            print(f"  Raw output: {result.stdout}")
-            raise Exception(f"JSON parse error: {e}")
+            print(f"❌ 解析 JSON 回應失敗: {e}")
+            return False
         except Exception as e:
-            print(f"❌ curl 執行異常: {e}")
-            raise
+            print(f"❌ Token 獲取異常: {e}")
+            return False
     
-    def get_recently_played(self, limit=20):
-        """使用 curl 獲取最近播放記錄"""
-        print(f"🎵 使用 curl 獲取最近 {limit} 首歌...")
-        
+    def make_api_call(self, endpoint: str, params: dict = None):
+        """使用 curl 呼叫 Spotify API"""
         if not self.access_token:
-            self.get_access_token()
+            if not self.get_access_token():
+                raise Exception("無法獲取 Access Token")
+        
+        url = f"https://api.spotify.com/v1/{endpoint}"
         
         # 構建 curl 命令
         cmd = [
             'curl', '-s', '-X', 'GET',
-            f'https://api.spotify.com/v1/me/player/recently-played?limit={limit}',
+            url,
             '-H', f'Authorization: Bearer {self.access_token}',
             '--max-time', '30'
         ]
         
-        print("📤 執行 curl API 請求...")
+        # 添加查詢參數
+        if params:
+            param_string = '&'.join([f"{k}={v}" for k, v in params.items()])
+            cmd[4] = f"{url}?{param_string}"
         
         try:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=35
+                timeout=25
             )
             
             if result.returncode == 0:
-                try:
-                    response_data = json.loads(result.stdout)
-                    
-                    if 'items' in response_data:
-                        items = response_data['items']
-                        print(f"✅ 成功獲取 {len(items)} 首歌曲")
-                        return items
-                    
-                    elif 'error' in response_data:
-                        error = response_data['error']
-                        if error.get('status') == 401:
-                            print("🔄 Token 可能過期，重新獲取...")
-                            self.get_access_token()
-                            
-                            # 重試 - 更新 Authorization header
-                            cmd[3] = f'Authorization: Bearer {self.access_token}'
-                            
-                            retry_result = subprocess.run(
-                                cmd,
-                                capture_output=True,
-                                text=True,
-                                timeout=35
-                            )
-                            
-                            if retry_result.returncode == 0:
-                                retry_data = json.loads(retry_result.stdout)
-                                items = retry_data.get('items', [])
-                                print(f"✅ 重試成功，獲取 {len(items)} 首歌曲")
-                                return items
-                        
-                        print(f"❌ API 錯誤: {error}")
-                        raise Exception(f"API error: {error}")
-                    
-                    else:
-                        print(f"⚠️ 未預期的回應格式: {result.stdout[:100]}...")
-                        return []
-                        
-                except json.JSONDecodeError as e:
-                    # 檢查是否是 204 回應 (無內容)
-                    if not result.stdout.strip():
-                        print("⚠️ 空回應 (可能是 204 No Content)")
-                        return []
-                    else:
-                        print(f"❌ JSON 解析失敗: {e}")
-                        print(f"  Raw output: {result.stdout[:200]}...")
-                        raise Exception(f"JSON parse error: {e}")
-            
+                return json.loads(result.stdout)
             else:
-                print(f"❌ curl API 請求失敗:")
-                print(f"  Return code: {result.returncode}")
-                print(f"  Stderr: {result.stderr}")
-                raise Exception(f"curl API failed: {result.stderr}")
+                print(f"❌ API 呼叫失敗: {result.stderr}")
+                return None
                 
         except subprocess.TimeoutExpired:
-            print("❌ curl API 請求超時")
-            raise Exception("curl API timeout")
+            print("❌ API 呼叫超時")
+            return None
+        except json.JSONDecodeError as e:
+            print(f"❌ 解析 API 回應失敗: {e}")
+            return None
         except Exception as e:
-            print(f"❌ curl API 執行異常: {e}")
-            raise
+            print(f"❌ API 呼叫異常: {e}")
+            return None
+    
+    def get_recently_played(self, limit=50):
+        """獲取最近播放記錄"""
+        print(f"🎵 獲取最近 {limit} 首播放記錄...")
+        response = self.make_api_call('me/player/recently-played', {'limit': limit})
+        
+        if response and 'items' in response:
+            print(f"✅ 成功獲取 {len(response['items'])} 首歌曲")
+            return response['items']
+        else:
+            print("❌ 獲取播放記錄失敗")
+            return []
+    
+    def get_several_tracks(self, track_ids: list):
+        """批次獲取歌曲詳細資訊 (最多50個)"""
+        if len(track_ids) > 50:
+            print(f"⚠️ 歌曲數量超過限制，只處理前50個")
+            track_ids = track_ids[:50]
+        
+        ids_string = ','.join(track_ids)
+        print(f"🎵 批次獲取 {len(track_ids)} 首歌曲詳細資訊...")
+        
+        response = self.make_api_call('tracks', {'ids': ids_string})
+        
+        if response and 'tracks' in response:
+            tracks = response['tracks']
+            print(f"✅ 成功獲取 {len(tracks)} 首歌曲詳細資訊")
+            return tracks
+        else:
+            print("❌ 獲取歌曲詳細資訊失敗")
+            return []
+    
+    def get_several_artists(self, artist_ids: list):
+        """批次獲取藝術家資訊 (最多50個)"""
+        if len(artist_ids) > 50:
+            print(f"⚠️ 藝術家數量超過限制，只處理前50個")
+            artist_ids = artist_ids[:50]
+        
+        ids_string = ','.join(artist_ids)
+        print(f"🎤 批次獲取 {len(artist_ids)} 位藝術家資訊...")
+        
+        response = self.make_api_call('artists', {'ids': ids_string})
+        
+        if response and 'artists' in response:
+            artists = response['artists']
+            print(f"✅ 成功獲取 {len(artists)} 位藝術家資訊")
+            return artists
+        else:
+            print("❌ 獲取藝術家資訊失敗")
+            return []
+    
+    def get_several_albums(self, album_ids: list):
+        """批次獲取專輯資訊 (最多20個)"""
+        if len(album_ids) > 20:
+            print(f"⚠️ 專輯數量超過限制，只處理前20個")
+            album_ids = album_ids[:20]
+        
+        ids_string = ','.join(album_ids)
+        print(f"💿 批次獲取 {len(album_ids)} 張專輯資訊...")
+        
+        response = self.make_api_call('albums', {'ids': ids_string})
+        
+        if response and 'albums' in response:
+            albums = response['albums']
+            print(f"✅ 成功獲取 {len(albums)} 張專輯資訊")
+            return albums
+        else:
+            print("❌ 獲取專輯資訊失敗")
+            return []
 
 # ============================================================================
 # DAG 配置
 # ============================================================================
 
 default_args = {
-    'owner': 'curl-spotify',
+    'owner': 'enhanced-spotify',
     'depends_on_past': False,
     'start_date': datetime(2025, 1, 1),
     'retries': 1,
     'retry_delay': timedelta(minutes=3),
-    'execution_timeout': timedelta(minutes=10)
+    'execution_timeout': timedelta(minutes=15)
 }
 
 dag = DAG(
-    'curl_spotify_tracker',
+    'enhanced_spotify_tracker',
     default_args=default_args,
-    description='🔧 使用 curl 的 Spotify 音樂追蹤 (解決 requests 問題)',
-    schedule='0 */2 * * *', # 每兩小時
+    description='🎵 完善版 Spotify 音樂追蹤 (聽歌記錄 + 詳細資訊收集)',
+    schedule='0 */2 * * *',  # 每兩小時
     max_active_runs=1,
     catchup=False,
-    tags=['spotify', 'curl', 'working-solution']
+    tags=['spotify', 'enhanced', 'batch-api']
 )
 
 # ============================================================================
@@ -277,196 +369,432 @@ def check_curl_availability(**context):
         print(f"❌ curl 檢查失敗: {e}")
         raise
 
-def fetch_curl_spotify_data(**context):
-    """使用 curl 獲取 Spotify 資料"""
-    execution_date = context['ds']
-    batch_id = f"curl_spotify_{execution_date.replace('-', '')}"
-    
-    print(f"🎵 開始使用 curl 獲取 {execution_date} 的 Spotify 資料...")
-    print(f"📦 批次 ID: {batch_id}")
-    
+def fetch_spotify_data(**context):
+    """獲取 Spotify 數據 - 包含聽歌記錄和詳細資訊收集"""
+    print("🎵 開始獲取 Spotify 數據...")
+    batch_id = f"spotify_enhanced_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     start_time = time.time()
     
     try:
-        # 初始化 curl 客戶端
+        # 初始化客戶端
         client = CurlSpotifyClient()
         
-        # 獲取播放記錄
-        items = client.get_recently_played(limit=30)
+        # 1. 獲取聽歌記錄
+        print("\n" + "="*50)
+        print("📻 第1階段：獲取聽歌記錄")
+        print("="*50)
         
-        # 處理資料
-        processed_tracks = []
-        for item in items:
-            track = item['track']
-            processed_track = {
-                'track_id': track['id'],
-                'track_name': track['name'],
-                'artist_name': track['artists'][0]['name'],
-                'album_name': track['album']['name'],
-                'played_at': item['played_at'],
-                'duration_ms': track['duration_ms'],
-                'popularity': track.get('popularity', 0),
-                'explicit': track.get('explicit', False),
-                'batch_id': batch_id,
-                'execution_date': execution_date,
-                'collected_at': datetime.utcnow().isoformat(),
-                'method': 'curl'  # 標記使用 curl 方法
+        listening_data = client.get_recently_played(limit=50)
+        
+        if not listening_data:
+            print("⚠️ 沒有獲取到聽歌記錄")
+            return {
+                "status": "no_data",
+                "batch_id": batch_id,
+                "message": "No listening data found"
             }
-            processed_tracks.append(processed_track)
+        
+        # 2. 收集需要查詢的 IDs
+        print("\n" + "="*50)
+        print("🔍 第2階段：分析需要收集的詳細資訊")
+        print("="*50)
+        
+        new_track_ids = []
+        new_artist_ids = []
+        new_album_ids = []
+        
+        for item in listening_data:
+            track = item['track']
+            track_id = track['id']
+            album_id = track['album']['id']
+            
+            # 檢查 track 是否需要更新
+            if not exists_in_mongodb('track_details', track_id):
+                new_track_ids.append(track_id)
+                print(f"🆕 新歌曲: {track['name']}")
+            
+            # 檢查 album 是否需要更新
+            if not exists_in_mongodb('album_catalog', album_id):
+                new_album_ids.append(album_id)
+                print(f"🆕 新專輯: {track['album']['name']}")
+            
+            # 檢查所有 artists
+            for artist in track['artists']:
+                artist_id = artist['id']
+                if not exists_in_mongodb('artist_profiles', artist_id):
+                    new_artist_ids.append(artist_id)
+                    print(f"🆕 新藝術家: {artist['name']}")
+        
+        # 去重
+        new_track_ids = list(set(new_track_ids))
+        new_artist_ids = list(set(new_artist_ids))
+        new_album_ids = list(set(new_album_ids))
+        
+        print(f"\n📊 收集摘要:")
+        print(f"   🎵 需要收集的歌曲: {len(new_track_ids)}")
+        print(f"   🎤 需要收集的藝術家: {len(new_artist_ids)}")
+        print(f"   💿 需要收集的專輯: {len(new_album_ids)}")
+        
+        # 3. 批次呼叫 API 收集詳細資訊
+        print("\n" + "="*50)
+        print("🚀 第3階段：批次收集詳細資訊")
+        print("="*50)
+        
+        collection_results = {
+            'track_details': [],
+            'artist_profiles': [],
+            'album_catalog': []
+        }
+        
+        # 批次獲取歌曲詳細資訊
+        if new_track_ids:
+            print(f"\n🎵 處理 {len(new_track_ids)} 首歌曲...")
+            tracks_data = client.get_several_tracks(new_track_ids)
+            
+            for track in tracks_data:
+                if track:  # 確保 track 不是 None
+                    track_detail = {
+                        'track_id': track['id'],
+                        'name': track['name'],
+                        'duration_ms': track['duration_ms'],
+                        'explicit': track['explicit'],
+                        'popularity': track['popularity'],
+                        'preview_url': track.get('preview_url'),
+                        'track_number': track.get('track_number'),
+                        'artists': [{'id': a['id'], 'name': a['name']} for a in track['artists']],
+                        'album': {
+                            'id': track['album']['id'],
+                            'name': track['album']['name']
+                        },
+                        'available_markets': track.get('available_markets', []),
+                        'external_ids': track.get('external_ids', {}),
+                        'external_urls': track.get('external_urls', {}),
+                        'metadata': {
+                            'first_seen': datetime.utcnow(),
+                            'last_updated': datetime.utcnow(),
+                            'play_count': 1
+                        },
+                        'raw_api_response': track
+                    }
+                    collection_results['track_details'].append(track_detail)
+        
+        # 批次獲取藝術家資訊
+        if new_artist_ids:
+            print(f"\n🎤 處理 {len(new_artist_ids)} 位藝術家...")
+            artists_data = client.get_several_artists(new_artist_ids)
+            
+            for artist in artists_data:
+                if artist:  # 確保 artist 不是 None
+                    artist_profile = {
+                        'artist_id': artist['id'],
+                        'name': artist['name'],
+                        'genres': artist.get('genres', []),
+                        'popularity': artist.get('popularity', 0),
+                        'followers': artist.get('followers', {}).get('total', 0),
+                        'images': artist.get('images', []),
+                        'external_urls': artist.get('external_urls', {}),
+                        'metadata': {
+                            'first_seen': datetime.utcnow(),
+                            'last_updated': datetime.utcnow(),
+                            'total_tracks_played': 1
+                        },
+                        'raw_api_response': artist
+                    }
+                    collection_results['artist_profiles'].append(artist_profile)
+        
+        # 批次獲取專輯資訊
+        if new_album_ids:
+            print(f"\n💿 處理 {len(new_album_ids)} 張專輯...")
+            albums_data = client.get_several_albums(new_album_ids)
+            
+            for album in albums_data:
+                if album:  # 確保 album 不是 None
+                    album_info = {
+                        'album_id': album['id'],
+                        'name': album['name'],
+                        'album_type': album.get('album_type'),
+                        'release_date': album.get('release_date'),
+                        'release_date_precision': album.get('release_date_precision'),
+                        'total_tracks': album.get('total_tracks', 0),
+                        'artists': [{'id': a['id'], 'name': a['name']} for a in album['artists']],
+                        'images': album.get('images', []),
+                        'genres': album.get('genres', []),
+                        'label': album.get('label'),
+                        'popularity': album.get('popularity', 0),
+                        'external_urls': album.get('external_urls', {}),
+                        'metadata': {
+                            'first_seen': datetime.utcnow(),
+                            'last_updated': datetime.utcnow(),
+                            'total_plays': 1
+                        },
+                        'raw_api_response': album
+                    }
+                    collection_results['album_catalog'].append(album_info)
+        
+        # 4. 處理聽歌記錄
+        print("\n" + "="*50)
+        print("📝 第4階段：處理聽歌記錄")
+        print("="*50)
+        
+        processed_listening = []
+        for item in listening_data:
+            track = item['track']
+            played_at = datetime.fromisoformat(item['played_at'].replace('Z', '+00:00'))
+            
+            listening_record = {
+                'track_id': track['id'],
+                'played_at': played_at,
+                'track_info': {
+                    'name': track['name'],
+                    'artists': [{'id': a['id'], 'name': a['name']} for a in track['artists']],
+                    'album': {
+                        'id': track['album']['id'],
+                        'name': track['album']['name']
+                    },
+                    'duration_ms': track['duration_ms'],
+                    'explicit': track['explicit'],
+                    'popularity': track['popularity']
+                },
+                'batch_info': {
+                    'batch_id': batch_id,
+                    'collected_at': datetime.utcnow(),
+                    'api_version': 'v1'
+                },
+                'raw_api_response': item
+            }
+            processed_listening.append(listening_record)
         
         collection_time = time.time() - start_time
         
+        # 組合結果
         result = {
-            'status': 'success',
-            'method': 'curl',
-            'batch_id': batch_id,
-            'execution_date': execution_date,
-            'total_tracks': len(processed_tracks),
-            'collection_time': round(collection_time, 2),
-            'tracks_data': processed_tracks
+            "status": "success",
+            "method": "curl_enhanced",
+            "batch_id": batch_id,
+            "collection_time": round(collection_time, 2),
+            "listening_data": processed_listening,
+            "detailed_collections": collection_results,
+            "summary": {
+                "total_listening_records": len(processed_listening),
+                "new_tracks_collected": len(collection_results['track_details']),
+                "new_artists_collected": len(collection_results['artist_profiles']),
+                "new_albums_collected": len(collection_results['album_catalog'])
+            }
         }
         
-        print(f"✅ curl 資料收集完成:")
-        print(f"   播放記錄: {len(processed_tracks)}")
-        print(f"   收集時間: {collection_time:.2f} 秒")
-        print(f"   方法: curl")
+        print(f"\n✅ 數據收集完成! 耗時 {collection_time:.2f} 秒")
+        print(f"📊 聽歌記錄: {len(processed_listening)}")
+        print(f"🎵 新歌曲: {len(collection_results['track_details'])}")
+        print(f"🎤 新藝術家: {len(collection_results['artist_profiles'])}")
+        print(f"💿 新專輯: {len(collection_results['album_catalog'])}")
         
-        if processed_tracks:
-            print("🎧 示例歌曲:")
-            for i, track in enumerate(processed_tracks[:3]):
-                print(f"   {i+1}. {track['track_name']} - {track['artist_name']}")
-        
-        # 傳遞給下一個 Task
+        # 傳遞結果給下個 Task
         context['task_instance'].xcom_push(key='spotify_data', value=result)
         return result
         
     except Exception as e:
-        print(f"❌ curl 資料收集失敗: {str(e)}")
+        error_result = {
+            "status": "failed",
+            "method": "curl_enhanced",
+            "batch_id": batch_id,
+            "error": str(e),
+            "collection_time": time.time() - start_time
+        }
+        
+        print(f"❌ 數據收集失敗: {e}")
+        context['task_instance'].xcom_push(key='spotify_data', value=error_result)
         raise
 
-def store_curl_data(**context):
-    """儲存 curl 獲取的資料"""
-    print("💾 開始儲存 curl 獲取的資料...")
+def store_enhanced_data(**context):
+    """儲存完善的數據到 MongoDB"""
+    print("🍃 開始儲存完善數據到 MongoDB...")
     
-    # 獲取資料
     spotify_data = context['task_instance'].xcom_pull(
-        task_ids='fetch_curl_spotify_data',
+        task_ids='fetch_enhanced_spotify_data',
         key='spotify_data'
     )
     
-    if not spotify_data or not spotify_data.get('tracks_data'):
-        print("⚠️ 沒有資料需要儲存")
+    if not spotify_data or spotify_data.get('status') != 'success':
+        print("❌ 沒有有效數據需要儲存")
         return {"status": "no_data"}
     
-    tracks_data = spotify_data['tracks_data']
-    batch_id = spotify_data['batch_id']
-    
-    print(f"📦 準備儲存 {len(tracks_data)} 筆記錄...")
-    print(f"🏷️ 批次 ID: {batch_id}")
-    print(f"🔧 資料來源: {spotify_data.get('method', 'unknown')}")
+    storage_results = {}
     
     try:
-        # 載入 MongoDB 憑證
-        force_load_env_vars()
+        # 1. 儲存聽歌記錄
+        listening_data = spotify_data.get('listening_data', [])
+        if listening_data:
+            print(f"📻 儲存 {len(listening_data)} 筆聽歌記錄...")
+            result = store_to_mongodb('daily_listening_history', listening_data)
+            storage_results['listening_history'] = result
         
-        mongodb_url = os.environ.get('MONGODB_ATLAS_URL')
-        db_name = os.environ.get('MONGODB_ATLAS_DB_NAME', 'music_data')
+        # 2. 儲存歌曲詳細資訊
+        track_details = spotify_data.get('detailed_collections', {}).get('track_details', [])
+        if track_details:
+            print(f"🎵 儲存 {len(track_details)} 筆歌曲詳細資訊...")
+            result = store_to_mongodb('track_details', track_details)
+            storage_results['track_details'] = result
         
-        if not mongodb_url:
-            print("⚠️ MongoDB URL 未設定，只在記憶體中處理")
-            return {
-                "status": "memory_only",
-                "tracks_processed": len(tracks_data),
-                "batch_id": batch_id,
-                "method": "curl"
-            }
+        # 3. 儲存藝術家資訊
+        artist_profiles = spotify_data.get('detailed_collections', {}).get('artist_profiles', [])
+        if artist_profiles:
+            print(f"🎤 儲存 {len(artist_profiles)} 筆藝術家資訊...")
+            result = store_to_mongodb('artist_profiles', artist_profiles)
+            storage_results['artist_profiles'] = result
         
-        print(f"🔗 連接到 MongoDB: {db_name}")
+        # 4. 儲存專輯資訊
+        album_catalog = spotify_data.get('detailed_collections', {}).get('album_catalog', [])
+        if album_catalog:
+            print(f"💿 儲存 {len(album_catalog)} 筆專輯資訊...")
+            result = store_to_mongodb('album_catalog', album_catalog)
+            storage_results['album_catalog'] = result
         
-        client = MongoClient(mongodb_url, server_api=ServerApi('1'))
-        db = client[db_name]
-        collection = db['daily_listening_history']
-        
-        # 批次處理
-        insert_count = 0
-        update_count = 0
-        
-        for track in tracks_data:
-            filter_query = {
-                'track_id': track['track_id'],
-                'played_at': track['played_at']
-            }
-            
-            result = collection.replace_one(filter_query, track, upsert=True)
-            
-            if result.upserted_id:
-                insert_count += 1
-            elif result.modified_count > 0:
-                update_count += 1
-        
-        storage_stats = {
-            'status': 'success',
-            'method': 'curl',
-            'mongodb_inserted': insert_count,
-            'mongodb_updated': update_count,
-            'mongodb_total': insert_count + update_count,
-            'batch_id': batch_id,
-            'database': db_name
+        # 5. 儲存批次執行記錄
+        batch_log = {
+            'batch_id': spotify_data['batch_id'],
+            'execution_date': datetime.utcnow(),
+            'status': 'completed',
+            'summary': spotify_data['summary'],
+            'storage_results': storage_results,
+            'execution_time': spotify_data.get('collection_time', 0),
+            'method': 'curl_enhanced'
         }
         
-        print(f"✅ MongoDB 儲存完成:")
-        print(f"   新增: {insert_count}")
-        print(f"   更新: {update_count}")
-        print(f"   總計: {insert_count + update_count}")
-        print(f"   方法: curl")
+        print(f"📝 儲存批次執行記錄...")
+        batch_result = store_to_mongodb('batch_execution_log', [batch_log])
+        storage_results['batch_log'] = batch_result
         
-        client.close()
-        return storage_stats
+        # 計算總儲存統計
+        total_inserted = 0
+        total_attempted = 0
+        
+        for collection, result in storage_results.items():
+            if result.get('status') == 'success':
+                total_inserted += result.get('inserted_count', 0)
+                total_attempted += result.get('total_attempted', 0)
+        
+        final_result = {
+            'status': 'success',
+            'batch_id': spotify_data['batch_id'],
+            'collections_updated': len(storage_results),
+            'total_inserted': total_inserted,
+            'total_attempted': total_attempted,
+            'storage_details': storage_results
+        }
+        
+        print(f"\n✅ 數據儲存完成!")
+        print(f"📊 總共儲存: {total_inserted}/{total_attempted}")
+        print(f"🗂️ 更新集合: {len(storage_results)}")
+        
+        context['task_instance'].xcom_push(key='storage_results', value=final_result)
+        return final_result
         
     except Exception as e:
-        print(f"❌ 儲存失敗: {str(e)}")
-        return {
-            "status": "storage_failed",
-            "error": str(e),
-            "tracks_processed_in_memory": len(tracks_data),
-            "method": "curl"
+        error_result = {
+            'status': 'failed',
+            'batch_id': spotify_data.get('batch_id', 'unknown'),
+            'error': str(e),
+            'partial_results': storage_results
         }
+        
+        print(f"❌ 數據儲存失敗: {e}")
+        context['task_instance'].xcom_push(key='storage_results', value=error_result)
+        return error_result
 
-def log_curl_summary(**context):
-    """記錄 curl 版本執行摘要"""
+def log_enhanced_summary(**context):
+    """記錄完善版執行摘要"""
     execution_date = context['ds']
     
     spotify_data = context['task_instance'].xcom_pull(
-        task_ids='fetch_curl_spotify_data',
+        task_ids='fetch_enhanced_spotify_data',
         key='spotify_data'
     ) or {}
     
-    storage_result = context['task_instance'].xcom_pull(
-        task_ids='store_curl_data'
+    storage_results = context['task_instance'].xcom_pull(
+        task_ids='store_enhanced_data',
+        key='storage_results'
     ) or {}
     
-    print("\n" + "=" * 70)
-    print("📋 curl 版本 Spotify 音樂追蹤執行報告")
-    print("=" * 70)
+    print("\n" + "=" * 80)
+    print("🎵 完善版 Spotify 音樂追蹤執行報告")
+    print("=" * 80)
     print(f"📅 執行日期: {execution_date}")
     print(f"🏷️ 批次 ID: {spotify_data.get('batch_id', 'unknown')}")
-    print(f"🔧 請求方法: {spotify_data.get('method', 'unknown')}")
+    print(f"🔧 方法: {spotify_data.get('method', 'unknown')}")
+    print(f"⏱️ 收集時間: {spotify_data.get('collection_time', 0)} 秒")
     print("")
-    print("🎵 Spotify API:")
-    print(f"   獲取歌曲: {spotify_data.get('total_tracks', 0)}")
-    print(f"   收集時間: {spotify_data.get('collection_time', 0)} 秒")
-    print(f"   狀態: {spotify_data.get('status', 'unknown')}")
-    print("")
-    print("💾 資料儲存:")
-    print(f"   狀態: {storage_result.get('status', 'unknown')}")
-    print(f"   方法: {storage_result.get('method', 'unknown')}")
-    if storage_result.get('mongodb_total'):
-        print(f"   MongoDB 記錄: {storage_result.get('mongodb_total', 0)}")
-    print("")
-    print("🎉 curl 方法成功解決了 Python requests 卡住的問題!")
-    print("=" * 70)
     
-    return "✅ curl 版本音樂追蹤執行完成"
+    # Spotify API 收集統計
+    summary = spotify_data.get('summary', {})
+    print("🎵 Spotify API 收集:")
+    print(f"   📻 聽歌記錄: {summary.get('total_listening_records', 0)}")
+    print(f"   🎵 新歌曲: {summary.get('new_tracks_collected', 0)}")
+    print(f"   🎤 新藝術家: {summary.get('new_artists_collected', 0)}")
+    print(f"   💿 新專輯: {summary.get('new_albums_collected', 0)}")
+    print("")
+    
+    # MongoDB 儲存統計
+    print("🍃 MongoDB 儲存:")
+    storage_details = storage_results.get('storage_details', {})
+    
+    for collection, result in storage_details.items():
+        status_icon = "✅" if result.get('status') == 'success' else "❌"
+        inserted = result.get('inserted_count', 0)
+        attempted = result.get('total_attempted', 0)
+        print(f"   {status_icon} {collection}: {inserted}/{attempted}")
+    
+    print(f"   📊 總計: {storage_results.get('total_inserted', 0)}/{storage_results.get('total_attempted', 0)}")
+    print("")
+    
+    # 成功率計算
+    if spotify_data.get('status') == 'success' and storage_results.get('status') == 'success':
+        success_rate = 100
+        status_emoji = "🎉"
+        status_msg = "完全成功"
+    elif spotify_data.get('status') == 'success':
+        success_rate = 75
+        status_emoji = "⚠️"
+        status_msg = "數據收集成功，儲存部分失敗"
+    else:
+        success_rate = 0
+        status_emoji = "❌"
+        status_msg = "執行失敗"
+    
+    print("📈 執行狀態:")
+    print(f"   {status_emoji} 狀態: {status_msg}")
+    print(f"   📊 成功率: {success_rate}%")
+    print("")
+    
+    # 系統改進說明
+    print("🚀 系統改進亮點:")
+    print("   ✅ 智能去重 - 避免重複收集已存在的資料")
+    print("   ✅ 批次 API - 大幅提升效率（50首歌曲/次）")
+    print("   ✅ 完整結構 - 聽歌記錄 + 歌曲/藝術家/專輯詳細資訊")
+    print("   ✅ 容錯設計 - 單項失敗不影響整體執行")
+    print("   ✅ curl 方案 - 解決 Python requests 卡住問題")
+    print("")
+    
+    # 資料品質說明
+    if summary.get('total_listening_records', 0) > 0:
+        print("📊 資料品質:")
+        new_items = (summary.get('new_tracks_collected', 0) + 
+                    summary.get('new_artists_collected', 0) + 
+                    summary.get('new_albums_collected', 0))
+        
+        if new_items > 0:
+            print(f"   🆕 新發現內容: {new_items} 項")
+            print("   🔄 系統正在持續豐富音樂資料庫")
+        else:
+            print("   ♻️ 所有內容已存在，資料庫保持最新")
+        
+        print(f"   📈 資料涵蓋度持續提升")
+    
+    print("")
+    print("✨ 下次執行時間: 2 小時後")
+    print("💡 提示: 可在 MongoDB 查看詳細資料結構")
+    print("=" * 80)
+    
+    return "✅ 完善版音樂追蹤執行完成"
 
 # ============================================================================
 # Task 定義
@@ -478,23 +806,26 @@ check_curl_task = PythonOperator(
     dag=dag
 )
 
-fetch_data_task = PythonOperator(
-    task_id='fetch_curl_spotify_data',
-    python_callable=fetch_curl_spotify_data,
+fetch_enhanced_data_task = PythonOperator(
+    task_id='fetch_enhanced_spotify_data',
+    python_callable=fetch_spotify_data,
     dag=dag
 )
 
-store_data_task = PythonOperator(
-    task_id='store_curl_data',
-    python_callable=store_curl_data,
+store_enhanced_data_task = PythonOperator(
+    task_id='store_enhanced_data',
+    python_callable=store_enhanced_data,
     dag=dag
 )
 
 summary_task = PythonOperator(
-    task_id='log_curl_summary',
-    python_callable=log_curl_summary,
+    task_id='log_enhanced_summary',
+    python_callable=log_enhanced_summary,
     dag=dag
 )
 
-# 線性執行
-check_curl_task >> fetch_data_task >> store_data_task >> summary_task
+# ============================================================================
+# Task 依賴關係
+# ============================================================================
+
+check_curl_task >> fetch_enhanced_data_task >> store_enhanced_data_task >> summary_task
