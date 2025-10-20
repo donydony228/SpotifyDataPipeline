@@ -19,7 +19,7 @@ from pymongo.server_api import ServerApi
 
 def force_load_env_vars():
     """強制載入環境變數"""
-    env_files = ['.env', 'airflow_home/.env', '../.env']
+    env_files = ['/Users/desmond/airflow/.env', '.env', 'airflow_home/.env', '../.env']
     
     for env_file in env_files:
         if os.path.exists(env_file):

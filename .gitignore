@@ -3,7 +3,7 @@ airflow.db
 simple_auth_manager_passwords.json.generated
 logs
 airflow.cfg
-us-job-env/
+archieve/
 .env
 
 # Railway 部署相關敏感檔案
@@ -145,3 +145,16 @@ test.ipynb
 # Railway 部署檔案（包含敏感資訊）
 railway_deployment_*.txt
 deployment_vars.txt
+# Airflow 運行時檔案
+airflow-scheduler.err
+airflow-scheduler.log
+airflow-scheduler.out
+airflow-scheduler.pid
+airflow-webserver-monitor.pid
+airflow-webserver.err
+airflow-webserver.log
+airflow-webserver.out
+airflow-webserver.pid
+webserver_config.py
+standalone_admin_password.txt
+

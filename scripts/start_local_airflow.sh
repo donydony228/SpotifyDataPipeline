@@ -91,17 +91,17 @@ if [ ! -f "$AIRFLOW_HOME/airflow.db" ]; then
 fi
 
 # 檢查是否需要創建管理員用戶
-USER_EXISTS=$(airflow users list 2>/dev/null | grep -c "admin" || echo "0")
-if [ "$USER_EXISTS" -eq "0" ]; then
-    echo "👤 創建管理員用戶..."
-    airflow users create \
-        --username admin \
-        --firstname Admin \
-        --lastname User \
-        --role Admin \
-        --email admin@musicdata.com \
-        --password admin123
-fi
+# USER_EXISTS=$(airflow users list 2>/dev/null | grep -c "admin" | head -n1 | tr -d ' ' || echo "0")
+# if [ "$USER_EXISTS" -eq "0" ]; then
+#     echo "👤 創建管理員用戶..."
+#     airflow users create \
+#         --username admin \
+#         --firstname Admin \
+#         --lastname User \
+#         --role Admin \
+#         --email admin@musicdata.com \
+#         --password admin123
+# fi
 
 echo "🚀 啟動 Airflow standalone..."
 echo "💡 這會同時啟動 webserver 和 scheduler"
