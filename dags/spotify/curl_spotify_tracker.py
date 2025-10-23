@@ -60,15 +60,25 @@ def get_spotify_credentials():
 
 def get_mongodb_connection():
     """取得 MongoDB 連線"""
-    mongodb_url = os.environ.get('MONGODB_ATLAS_URL')
-    db_name = os.environ.get('MONGODB_ATLAS_DB_NAME', 'music_data')
-    
-    if not mongodb_url:
-        raise ValueError("❌ 缺少 MONGODB_ATLAS_URL")
-    
-    client = MongoClient(mongodb_url, server_api=ServerApi('1'))
-    db = client[db_name]
-    return db
+    try:
+        # 確保環境變數已載入
+        force_load_env_vars()
+        
+        mongodb_url = os.environ.get('MONGODB_ATLAS_URL')
+        db_name = os.environ.get('MONGODB_ATLAS_DB_NAME', 'music_data')
+        
+        print(f"🔍 MongoDB URL: {mongodb_url[:50]}..." if mongodb_url else "❌ MongoDB URL 未設定")
+        
+        if not mongodb_url:
+            raise ValueError("❌ 缺少 MONGODB_ATLAS_URL")
+        
+        client = MongoClient(mongodb_url, server_api=ServerApi('1'))
+        db = client[db_name]
+        return db
+        
+    except Exception as e:
+        print(f"❌ MongoDB 連線設定失敗: {e}")
+        raise
 
 def exists_in_mongodb(collection_name: str, spotify_id: str) -> bool:
     """檢查 ID 是否已存在於 MongoDB"""
@@ -93,7 +103,7 @@ def exists_in_mongodb(collection_name: str, spotify_id: str) -> bool:
         return False
 
 def store_to_mongodb(collection_name: str, data: list) -> dict:
-    """批次儲存資料到 MongoDB"""
+    """批次儲存資料到 MongoDB - 使用 upsert 避免重複"""
     if not data:
         return {"status": "no_data", "count": 0}
     
@@ -101,15 +111,38 @@ def store_to_mongodb(collection_name: str, data: list) -> dict:
         db = get_mongodb_connection()
         collection = db[collection_name]
         
-        # 批次插入，忽略重複
-        result = collection.insert_many(data, ordered=False)
+        inserted_count = 0
+        updated_count = 0
         
-        print(f"✅ 成功儲存 {len(result.inserted_ids)} 筆資料到 {collection_name}")
+        # 對於 daily_listening_history 使用特殊處理
+        if collection_name == 'daily_listening_history':
+            for item in data:
+                # 使用 upsert 避免重複
+                result = collection.replace_one(
+                    {
+                        "track_id": item["track_id"], 
+                        "played_at": item["played_at"]
+                    },
+                    item,
+                    upsert=True
+                )
+                
+                if result.upserted_id:
+                    inserted_count += 1
+                elif result.modified_count > 0:
+                    updated_count += 1
+        else:
+            # 其他 collection 使用原本邏輯
+            result = collection.insert_many(data, ordered=False)
+            inserted_count = len(result.inserted_ids)
+        
+        print(f"✅ {collection_name}: 新增 {inserted_count} 筆，更新 {updated_count} 筆")
         
         return {
             "status": "success",
             "collection": collection_name,
-            "inserted_count": len(result.inserted_ids),
+            "inserted_count": inserted_count,
+            "updated_count": updated_count,
             "total_attempted": len(data)
         }
         
@@ -653,7 +686,7 @@ def store_enhanced_data(**context):
         batch_log = {
             'batch_id': spotify_data['batch_id'],
             'execution_date': datetime.utcnow(),
-            'status': 'completed',
+            'status': 'success',
             'summary': spotify_data['summary'],
             'storage_results': storage_results,
             'execution_time': spotify_data.get('collection_time', 0),
