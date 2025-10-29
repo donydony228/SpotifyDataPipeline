@@ -175,3 +175,10 @@ wrapt==1.15.0
 WTForms==3.0.1
 yarl==1.9.2
 zipp==3.17.0
+
+# Streamlit 核心
+streamlit==1.28.1
+
+# 圖表和視覺化
+plotly==5.17.0
+pandas==2.1.3
