@@ -1,9 +1,38 @@
+# streamlit run dashboard/app.py
 import streamlit as st
 import numpy as np
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 from database_manager import SupabaseManager
+from heatmap import heatmap_load_data
+from treemap_track import treemap_track_load_data
+from treemap_artist import treemap_artist_load_data
+
 
 st.set_page_config(layout="wide")
+st.markdown("""
+<style>
+.block-container {
+    padding-top: 0rem;
+    padding-right: 2rem;
+    padding-left: 2rem;
+    padding-bottom: 0rem;
+}
+
+.st-emotion-cache-1cypcd9 {
+    padding-top: 1rem;
+}
+
+.st-emotion-cache-1y4pm5c { 
+    padding-top: 0rem; 
+}
+</style>
+""", unsafe_allow_html=True)
+# -----------------------------------------------
+
+# Image Display
+st.image("dashboard/IMG_2417.jpg", use_column_width=True)
 st.title("Spotify Recap Dashboard")
 
 # Check and initialize the database manager
@@ -16,68 +45,6 @@ except Exception as e:
     st.error(f"ERROR: Database initialization failed: {e}")
     st.stop()
 
-
-# ----------------------------------------------------
-# Heatmap
-# ----------------------------------------------------
-@st.cache_data(ttl=600) 
-def heatmap_load_data(day_count: int, _db_manager: SupabaseManager) -> pd.DataFrame:
-    """
-    Initialize and load data for the heatmap visualization.
-    """
-    
-    # SQL query with dynamic day_count parameter
-    query = f"""
-            WITH params AS (
-                SELECT {day_count} AS day_count 
-            ),
-            date_hour_series AS (
-                SELECT
-                    generate_series(
-                        (CURRENT_DATE - (p.day_count || ' days')::interval)::timestamp,
-                        (CURRENT_DATE - '1 day'::interval + '23 hours 59 minutes 59 seconds'::interval)::timestamp,
-                        '1 hour'::interval
-                    ) AS played_time_series
-                FROM params AS p
-            )
-            SELECT
-                DATE(s.played_time_series) AS played_date,
-                EXTRACT(HOUR FROM s.played_time_series) AS played_hour,
-                COALESCE(SUM(f.listening_minutes), 0.0) AS total_listening_minutes
-            FROM
-                date_hour_series AS s
-            LEFT JOIN
-                dwh.fact_listening AS f
-                ON date_trunc('hour', f.played_at) = s.played_time_series
-            GROUP BY
-                played_date,
-                played_hour
-            ORDER BY
-                played_date,
-                played_hour;
-            """
-    
-    df_raw = pd.DataFrame() 
-    try:
-        # Query execution
-        df_raw = _db_manager.execute_query(query)
-    except Exception as e:
-        st.error(f"ERROR: Database query execution failed: {e}")
-
-    # Renaming columns for clarity
-    df_raw.rename(columns={
-        'played_date': 'Date',
-        'played_hour': 'Hour',
-        'total_listening_minutes': 'Intensity'
-    }, inplace=True)
-    
-    # Convert data types
-    df_raw['Date'] = pd.to_datetime(df_raw['Date']).dt.strftime('%Y-%m-%d') 
-    df_raw['Hour'] = df_raw['Hour'].astype(int)
-    df_raw['Intensity'] = pd.to_numeric(df_raw['Intensity'], errors='coerce').fillna(0)
-
-    return df_raw
-
 # Interactive slider for days back
 days_to_display = st.slider(
     'Time Range (Days Back):', 
@@ -87,6 +54,9 @@ days_to_display = st.slider(
     step=7
 )
 
+# ----------------------------------------------------
+# Heatmap
+# ----------------------------------------------------
 # Load data
 df_source = heatmap_load_data(days_to_display, db)
 
@@ -94,47 +64,92 @@ if df_source.empty:
     st.stop()
 
 # Create heatmap
-st.subheader("Heatmap of Listening Time")
+st.subheader(f"Heatmap of Listening Time for the Past {days_to_display} Days")
 
-try:
-    # Use Plotly for heatmap visualization
-    import plotly.express as px
-    import plotly.graph_objects as go
-    
-    pivot_data = df_source.pivot(index='Hour', columns='Date', values='Intensity')
-    
-    fig = px.imshow(
-        pivot_data,
-        labels=dict(x="Date", y="Hour", color="Listening Minutes"),
-        title=f'Heatmap of Listening Time for the Past {days_to_display} Days',
-        color_continuous_scale='blues',
-        aspect="auto"
-    )
-    
+# Use Plotly for heatmap visualization
+pivot_data = df_source.pivot(index='Hour', columns='Date', values='Intensity')
+
+fig = px.imshow(
+    pivot_data,
+    labels=dict(x="Date", y="Hour", color="Minutes"),
+    # title=f'Heatmap of Listening Time for the Past {days_to_display} Days',
+    color_continuous_scale='blues',
+    aspect="auto"
+)
+
+# Customize layout
+fig.update_layout(
+    height=400,
+    yaxis=dict(
+        tickmode='array',
+        tickvals=list(range(0, 24, 4)),
+        ticktext=[f"{i}:00" for i in range(0, 24, 4)],
+        autorange='reversed'  
+    ),
+    xaxis=dict(
+        # tickangle=-45
+    ),
+    font=dict(size=12)
+)
+
+st.plotly_chart(fig, use_container_width=True)
+st.markdown("---")
+# ----------------------------------------------------
+# Treemap
+# ----------------------------------------------------
+col1, col2 = st.columns(2)
+
+# Load data
+track_treemap = treemap_track_load_data(days_to_display, db)
+artist_treemap = treemap_artist_load_data(days_to_display, db)
+
+with col1:
+    # Create treemap
+    st.subheader(f"Treemap of Top Artists for the Past {days_to_display} Days")
+
+    fig = go.Figure(go.Treemap(
+        labels=artist_treemap['artist_name'],
+        parents=[""] * len(artist_treemap),
+        values=artist_treemap['play_count'],
+        textinfo="label+value",
+        # marker=dict(colors=artist_treemap['play_count'], colorscale='Greens')
+    ))
+
     # Customize layout
     fig.update_layout(
         height=600,
-        yaxis=dict(
-            tickmode='array',
-            tickvals=list(range(0, 24, 4)),
-            ticktext=[f"{i}:00" for i in range(0, 24, 4)],
-            autorange='reversed'  
-        ),
-        xaxis=dict(
-            tickangle=-45
-        ),
-        font=dict(size=12)
+        font=dict(size=20), 
+        plot_bgcolor='rgba(0,0,0,0)',   # 設定圖表區域（繪圖區）的背景色
+        paper_bgcolor='rgba(0,0,0,0)'  # 設定整個圖表的背景
     )
-    
+
     st.plotly_chart(fig, use_container_width=True)
 
-except ImportError:
-    st.error("Necessary library 'plotly' is not installed. Please install it using the following command:")
-    st.code("pip install plotly")
-except Exception as e:
-    st.error(f"ERROR: Failed to create heatmap: {e}")
+with col2:
+    # Create treemap
+    st.subheader(f"Treemap of Top Tracks for the Past {days_to_display} Days")
 
+    fig = go.Figure(go.Treemap(
+        labels=track_treemap['track_name'],
+        parents=[""] * len(track_treemap),
+        values=track_treemap['play_count'],
+        textinfo="label+value",
+        # marker=dict(colors=track_treemap['play_count'], colorscale='Oranges')
+    ))
+
+    # Customize layout
+    fig.update_layout(
+        height=600,
+        font=dict(size=20),
+        plot_bgcolor='rgba(0,0,0,0)',   # 設定圖表區域（繪圖區）的背景色
+        paper_bgcolor='rgba(0,0,0,0)'  # 設定整個圖表的背景色
+    )
+
+    st.plotly_chart(fig, use_container_width=True)
+
+# ----------------------------------------------------
 # Listening Summary Metrics
+# ----------------------------------------------------
 st.markdown("---")
 st.subheader("Listening Summary")
 
