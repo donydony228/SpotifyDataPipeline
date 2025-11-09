@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 import os
-import pandas as pd
-import psycopg2
-from psycopg2.extras import RealDictCursor
 import logging
+import psycopg2
+import pandas as pd
+from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
-import warnings
-import numpy as np
 
 load_dotenv()
 

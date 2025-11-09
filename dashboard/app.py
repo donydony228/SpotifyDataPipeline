@@ -9,7 +9,9 @@ st.set_page_config(
 # Navigation setup
 pg = st.navigation([
     st.Page("main_page.py", title="Home"),
-    st.Page("test.py", title="Track"),
+    st.Page("track.py", title="Track"),
+    st.Page("artist.py", title="Artist"),
+    st.Page("album.py", title="Album")
 ])
 
 # Run the selected page

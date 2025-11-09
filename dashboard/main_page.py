@@ -9,9 +9,9 @@ import squarify
 import matplotlib.colors as mcolors
 
 from database_manager import SupabaseManager
-from heatmap import heatmap_load_data
-from treemap_track import treemap_track_load_data
-from treemap_artist import treemap_artist_load_data
+from sql_query.main_heatmap import heatmap_load_data
+from sql_query.main_treemap_track import treemap_track_load_data
+from sql_query.main_treemap_artist import treemap_artist_load_data
 
 def generate_blue_colors(values):
     """Generate a list of blue shades based on values."""
@@ -22,6 +22,9 @@ def generate_blue_colors(values):
         color = f'rgba(10, 54, 105, {blue_intensity})' 
         colors.append(color)
     return colors
+
+# Initialize database manager
+db = SupabaseManager()
 
 st.set_page_config(layout="wide")
 st.markdown("""
@@ -48,16 +51,6 @@ st.markdown("""
 st.image("dashboard/IMG_2417.jpg", width='stretch')
 st.title("Spotify Recap Dashboard")
 
-# Check and initialize the database manager
-try:
-    db = SupabaseManager()
-except NameError:
-    st.error("ERROR: SupabaseManager is not defined. Please check the database_manager module.")
-    st.stop()
-except Exception as e:
-    st.error(f"ERROR: Database initialization failed: {e}")
-    st.stop()
-
 # Interactive slider for days back
 days_to_display = st.slider(
     'Time Range (Days Back):', 
@@ -77,7 +70,7 @@ if df_source.empty:
     st.stop()
 
 # Create heatmap
-st.subheader(f"Heatmap of Listening Time for the Past {days_to_display} Days")
+st.subheader(f"Listening Time for the Past {days_to_display} Days")
 
 # Use Plotly for heatmap visualization
 pivot_data = df_source.pivot(index='Hour', columns='Date', values='Intensity')
@@ -85,7 +78,6 @@ pivot_data = df_source.pivot(index='Hour', columns='Date', values='Intensity')
 fig = px.imshow(
     pivot_data,
     labels=dict(x="Date", y="Hour", color="Minutes"),
-    # title=f'Heatmap of Listening Time for the Past {days_to_display} Days',
     color_continuous_scale='blues',
     aspect="auto"
 )
@@ -119,7 +111,7 @@ artist_treemap = treemap_artist_load_data(days_to_display, db)
 
 with col1:
     # Create treemap
-    st.subheader(f"Treemap of Top Artists for the Past {days_to_display} Days")
+    st.subheader(f"Top Artists for the Past {days_to_display} Days")
 
     manual_colors = generate_blue_colors(track_treemap['play_count'])
 
@@ -136,10 +128,6 @@ with col1:
 
     fig.update_layout(
         height=600,
-        # title=dict(
-        #     text=f"Treemap of Top Artists for the Past {days_to_display} Days", 
-        #     font=dict(size=30, color='black', family='Arial')  
-        # ),
         font=dict(size=20),
         plot_bgcolor='rgba(0,0,0,0)',
         paper_bgcolor='rgba(0,0,0,0)',
@@ -150,7 +138,7 @@ with col1:
 
 with col2:
     # Create treemap
-    st.subheader(f"Treemap of Top Tracks for the Past {days_to_display} Days")
+    st.subheader(f"Top Tracks for the Past {days_to_display} Days")
 
     manual_colors = generate_blue_colors(track_treemap['play_count'])
 
@@ -198,3 +186,7 @@ with col3:
 with col4:
     active_days = len(df_source[df_source['Intensity'] > 0]['Date'].unique())
     st.metric("Active Days", f"{active_days} days")
+
+# End of the dashboard code
+st.markdown("---")
+st.markdown("© Created by Desmond Peng")
