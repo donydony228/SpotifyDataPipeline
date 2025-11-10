@@ -4,9 +4,9 @@ import pandas as pd
 from database_manager import SupabaseManager
 
 @st.cache_data(ttl=600) 
-def gender_violin_load_data(days_to_display: int, _db_manager: SupabaseManager) -> pd.DataFrame:
+def band_violin_load_data(days_to_display: int, _db_manager: SupabaseManager) -> pd.DataFrame:
     """
-    Initialize and load data for the gender distribution visualization.
+    Initialize and load data for the band distribution visualization.
     """
     
     # SQL query with dynamic day_count parameter
@@ -16,15 +16,14 @@ def gender_violin_load_data(days_to_display: int, _db_manager: SupabaseManager) 
             )
             SELECT
                 f.listening_minutes,
-                a.gender
+                a.band
             FROM
                 dwh.fact_listening AS f
             LEFT JOIN
                 dwh.dim_artists AS a
                 ON f.artist_key = a.artist_key
             WHERE
-                a.gender IS NOT NULL
-                AND f.played_at >= (CURRENT_DATE - (SELECT day_count FROM params) * INTERVAL '1 day') 
+                f.played_at >= (CURRENT_DATE - (SELECT day_count FROM params) * INTERVAL '1 day') 
                 AND f.played_at < CURRENT_DATE
             """
     
@@ -38,9 +37,9 @@ def gender_violin_load_data(days_to_display: int, _db_manager: SupabaseManager) 
     return df_raw
 
 @st.cache_data(ttl=600) 
-def gender_bar_load_data(days_to_display: int, _db_manager: SupabaseManager) -> pd.DataFrame:
+def band_bar_load_data(days_to_display: int, _db_manager: SupabaseManager) -> pd.DataFrame:
     """
-    Initialize and load data for the gender distribution visualization.
+    Initialize and load data for the band distribution visualization.
     """
     
     # SQL query with dynamic day_count parameter
@@ -50,18 +49,18 @@ def gender_bar_load_data(days_to_display: int, _db_manager: SupabaseManager) -> 
             )
             SELECT
                 count(f.listening_minutes),
-                a.gender
+                -- a.gender,
+                a.band
             FROM
                 dwh.fact_listening AS f
             LEFT JOIN
                 dwh.dim_artists AS a
                 ON f.artist_key = a.artist_key
             WHERE
-                a.gender IS NOT NULL
-                AND f.played_at >= (CURRENT_DATE - (SELECT day_count FROM params) * INTERVAL '1 day') 
+                f.played_at >= (CURRENT_DATE - (SELECT day_count FROM params) * INTERVAL '1 day') 
                 AND f.played_at < CURRENT_DATE
             GROUP by
-                a.gender
+                a.band
             """
     
     df_raw = pd.DataFrame() 
@@ -73,26 +72,3 @@ def gender_bar_load_data(days_to_display: int, _db_manager: SupabaseManager) -> 
 
     return df_raw
 
-@st.cache_data(ttl=600) 
-def gender_bar_by_date(_db_manager: SupabaseManager) -> pd.DataFrame:
-    """
-    Initialize and load data for the gender distribution visualization.
-    """
-    
-    # SQL query with dynamic day_count parameter
-    query = f"""
-            SELECT first_discovered, count(artist_key), gender
-            FROM dwh.dim_artists
-            where gender is not null
-            GROUP BY first_discovered, gender
-            ORDER BY first_discovered, gender
-            """
-    
-    df_raw = pd.DataFrame() 
-    try:
-        # Query execution
-        df_raw = _db_manager.execute_query(query)
-    except Exception as e:
-        st.error(f"ERROR: Database query execution failed: {e}")
-
-    return df_raw
