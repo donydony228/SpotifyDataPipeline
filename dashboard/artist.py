@@ -12,7 +12,7 @@ from database_manager import SupabaseManager
 from sql_query.artist_gender import gender_violin_load_data, gender_bar_load_data, gender_bar_by_date
 from sql_query.artist_band import band_violin_load_data, band_bar_load_data
 from sql_query.artist_loyal import basic_loyal_load_data
-from sql_query.main_treemap_artist import treemap_artist_load_data
+from sql_query.artist_treemap import treemap_artist_load_data
 # Initialize database manager
 db = SupabaseManager()
 

@@ -8,7 +8,7 @@ import squarify
 import matplotlib.colors as mcolors
 
 from database_manager import SupabaseManager
-from sql_query.main_treemap_track import treemap_track_load_data
+from sql_query.track_treemap import treemap_track_load_data
 from sql_query.track_sankey import track_sankey_load_data
 
 
