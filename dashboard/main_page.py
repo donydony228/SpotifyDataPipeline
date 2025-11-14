@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import matplotlib.pyplot as plt
-import squarify
-import matplotlib.colors as mcolors
+# import matplotlib.pyplot as plt
+# import squarify
+# import matplotlib.colors as mcolors
 
 from database_manager import SupabaseManager
 from sql_query.main_heatmap import heatmap_load_data

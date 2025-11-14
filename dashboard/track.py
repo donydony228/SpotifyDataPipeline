@@ -3,9 +3,9 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import matplotlib.pyplot as plt
-import squarify
-import matplotlib.colors as mcolors
+# import matplotlib.pyplot as plt
+# import squarify
+# import matplotlib.colors as mcolors
 
 from database_manager import SupabaseManager
 from sql_query.track_treemap import treemap_track_load_data
