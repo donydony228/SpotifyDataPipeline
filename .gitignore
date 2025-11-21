@@ -1,4 +1,4 @@
-# 現有的 gitignore 內容
+# Basic files
 airflow.db
 simple_auth_manager_passwords.json.generated
 logs
@@ -6,12 +6,7 @@ airflow.cfg
 archieve/
 .env
 
-# Railway 部署相關敏感檔案
-railway_env_commands.txt
-railway_env_vars.txt
-railway_*.txt
-
-# Python 編譯檔案
+# Python cache files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -111,7 +106,7 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# Airflow 相關
+# Airflow
 airflow_home/
 logs/
 dags/__pycache__/
@@ -136,16 +131,13 @@ plugins/__pycache__/
 ehthumbs.db
 Thumbs.db
 
-# 臨時檔案
+# Temporary files
 *.tmp
 *.bak
 *.log
 test.ipynb
 
-# Railway 部署檔案（包含敏感資訊）
-railway_deployment_*.txt
-deployment_vars.txt
-# Airflow 運行時檔案
+# Airflow Operating System files
 airflow-scheduler.err
 airflow-scheduler.log
 airflow-scheduler.out

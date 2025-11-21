@@ -1,53 +1,53 @@
 #!/bin/bash
-# 🚀 Dashboard 啟動腳本 (新版)
+# Dashboard Activation Script for Music Analysis Application
 
-echo "🎵 啟動音樂分析 Dashboard"
+echo "Starting Music Analysis Dashboard"
 echo "========================="
 
-# 檢查 Python 環境
+# Check Python environment
 if ! command -v python3 &> /dev/null; then
-    echo "❌ 找不到 Python3，請先安裝 Python"
+    echo "Cannot find Python3, please install Python"
     exit 1
 fi
 
-# 檢查虛擬環境
+# Check virtual environment
 if [[ "$VIRTUAL_ENV" != "" ]]; then
-    echo "✅ 使用虛擬環境: $VIRTUAL_ENV"
+    echo "Using virtual environment: $VIRTUAL_ENV"
 else
-    echo "⚠️  建議使用虛擬環境"
+    echo "It is recommended to use a virtual environment"
 fi
 
-# 檢查套件安裝
-echo "🔍 檢查套件安裝..."
+# Check package installation
+echo "Checking package installation..."
 if ! python3 -c "import streamlit" &> /dev/null; then
-    echo "❌ Streamlit 未安裝"
-    echo "正在安裝必要套件..."
+    echo "Streamlit is not installed"
+    echo "Installing required packages..."
     pip install -r dashboard_requirements.txt
 fi
 
-# 檢查必要檔案
+# Check necessary files
 if [ ! -f "app.py" ]; then
-    echo "❌ 找不到 app.py 檔案"
-    echo "請確保在正確的目錄中執行此腳本"
+    echo "Cannot find app.py file"
+    echo "Please ensure you are running this script in the correct directory"
     exit 1
 fi
 
-# 建立環境變數檔案 (如果不存在)
+# Create environment variable file (if not exists)
 if [ ! -f ".env.dashboard" ]; then
-    echo "⚙️ 建立環境變數檔案..."
+    echo "Creating environment variable file..."
     cp .env.dashboard.example .env.dashboard
-    echo "✅ 請編輯 .env.dashboard 設定你的資料庫連線"
+    echo "Please edit .env.dashboard to configure your database connection"
 fi
 
 echo ""
-echo "🌐 Dashboard 啟動中..."
-echo "   本地網址: http://localhost:8501"
-echo "   網路存取: http://$(hostname -I | awk '{print $1}' 2>/dev/null || echo 'localhost'):8501"
+echo "Starting Music Analysis Dashboard..."
+echo "Local URL: http://localhost:8501"
+echo "Network Access: http://$(hostname -I | awk '{print $1}' 2>/dev/null || echo 'localhost'):8501"
 echo ""
-echo "🛑 按 Ctrl+C 停止服務"
+echo "Press Ctrl+C to stop the service"
 echo ""
 
-# 啟動 Streamlit
+# Start Streamlit
 # python -m streamlit run app.py
 streamlit run app.py \
   --server.address 0.0.0.0 \
