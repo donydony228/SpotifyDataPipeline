@@ -45,11 +45,11 @@ class MongoDBConnection:
             
             # Test connection
             self.client.admin.command('ping')
-            logger.info(f"✅ Connected to MongoDB Atlas - Database: {self.db_name}")
+            logger.info(f"Connected to MongoDB Atlas - Database: {self.db_name}")
             return True
             
         except Exception as e:
-            logger.error(f"❌ MongoDB connection failed: {str(e)}")
+            logger.error(f"MongoDB connection failed: {str(e)}")
             return False
     
     def close(self):
@@ -72,7 +72,7 @@ class MongoDBConnection:
         
         try:
             result = collection.insert_many(tracks)
-            logger.info(f"✅ Inserted {len(result.inserted_ids)} tracks to listening_history")
+            logger.info(f"Inserted {len(result.inserted_ids)} tracks to listening_history")
             
             return {
                 'success': True,
@@ -80,7 +80,7 @@ class MongoDBConnection:
                 'collection': 'daily_listening_history'
             }
         except Exception as e:
-            logger.error(f"❌ Failed to insert tracks: {str(e)}")
+            logger.error(f"Failed to insert tracks: {str(e)}")
             return {'success': False, 'error': str(e)}
     
     def insert_audio_features(self, features: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -97,7 +97,7 @@ class MongoDBConnection:
         
         try:
             result = collection.insert_many(features)
-            logger.info(f"✅ Inserted {len(result.inserted_ids)} audio features")
+            logger.info(f"Inserted {len(result.inserted_ids)} audio features")
             
             return {
                 'success': True,
@@ -105,7 +105,7 @@ class MongoDBConnection:
                 'collection': 'audio_features'
             }
         except Exception as e:
-            logger.error(f"❌ Failed to insert audio features: {str(e)}")
+            logger.error(f"Failed to insert audio features: {str(e)}")
             return {'success': False, 'error': str(e)}
     
     def insert_artist_profiles(self, artists: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -133,7 +133,7 @@ class MongoDBConnection:
                 })
             
             result = collection.bulk_write(bulk_operations)
-            logger.info(f"✅ Upserted {result.upserted_count + result.modified_count} artist profiles")
+            logger.info(f"Upserted {result.upserted_count + result.modified_count} artist profiles")
             
             return {
                 'success': True,
@@ -142,7 +142,7 @@ class MongoDBConnection:
                 'collection': 'artist_profiles'
             }
         except Exception as e:
-            logger.error(f"❌ Failed to insert artist profiles: {str(e)}")
+            logger.error(f"Failed to insert artist profiles: {str(e)}")
             return {'success': False, 'error': str(e)}
 
 
@@ -165,11 +165,11 @@ class PostgreSQLConnection:
                 connect_timeout=10
             )
             self.connection.autocommit = False
-            logger.info("✅ Connected to PostgreSQL/Supabase")
+            logger.info("Connected to PostgreSQL/Supabase")
             return True
             
         except Exception as e:
-            logger.error(f"❌ PostgreSQL connection failed: {str(e)}")
+            logger.error(f"PostgreSQL connection failed: {str(e)}")
             return False
     
     def close(self):
@@ -189,7 +189,7 @@ class PostgreSQLConnection:
                 results = cursor.fetchall()
                 return [dict(row) for row in results]
         except Exception as e:
-            logger.error(f"❌ Query execution failed: {str(e)}")
+            logger.error(f"Query execution failed: {str(e)}")
             self.connection.rollback()
             raise
     
@@ -218,7 +218,7 @@ class PostgreSQLConnection:
                 self.connection.commit()
                 
                 inserted_count = cursor.rowcount
-                logger.info(f"✅ Inserted {inserted_count} rows into {schema}.{table}")
+                logger.info(f"Inserted {inserted_count} rows into {schema}.{table}")
                 
                 return {
                     'success': True,
@@ -227,7 +227,7 @@ class PostgreSQLConnection:
                 }
                 
         except Exception as e:
-            logger.error(f"❌ Insert failed for {schema}.{table}: {str(e)}")
+            logger.error(f"Insert failed for {schema}.{table}: {str(e)}")
             self.connection.rollback()
             return {'success': False, 'error': str(e)}
     
@@ -257,7 +257,7 @@ class PostgreSQLConnection:
                 cursor.execute(query, stats_data)
                 self.connection.commit()
                 
-                logger.info(f"✅ Upserted daily stats for {stats_data['date']}")
+                logger.info(f"Upserted daily stats for {stats_data['date']}")
                 
                 return {
                     'success': True,
@@ -266,7 +266,7 @@ class PostgreSQLConnection:
                 }
                 
         except Exception as e:
-            logger.error(f"❌ Daily stats upsert failed: {str(e)}")
+            logger.error(f"Daily stats upsert failed: {str(e)}")
             self.connection.rollback()
             return {'success': False, 'error': str(e)}
     
