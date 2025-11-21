@@ -1,63 +1,63 @@
 #!/bin/bash
 # scripts/stop_local_airflow.sh
-# 本地 Airflow 停止腳本
+# Local Airflow stop script
 
-echo "🛑 停止 Airflow 本地服務..."
+echo "Starting to stop local Airflow services..."
 
-# 尋找並停止所有 Airflow 相關進程
+# Find and stop all Airflow related processes
 AIRFLOW_PIDS=$(pgrep -f "airflow")
 
 if [ -z "$AIRFLOW_PIDS" ]; then
-    echo "ℹ️ 沒有發現運行中的 Airflow 進程"
+    echo "No running Airflow processes found"
 else
-    echo "📊 找到 Airflow 進程: $AIRFLOW_PIDS"
-    
-    # 優雅地停止進程
-    echo "🔄 正在停止 Airflow 進程..."
+    echo "Found Airflow processes: $AIRFLOW_PIDS"
+
+    # Gracefully stop processes
+    echo "Stopping Airflow processes..."
     for pid in $AIRFLOW_PIDS; do
-        echo "  停止進程 $pid..."
+        echo "  Stopping process $pid..."
         kill $pid 2>/dev/null || true
     done
-    
-    # 等待進程停止
+
+    # Wait for processes to stop
     sleep 3
-    
-    # 檢查是否還有進程在運行
+
+    # Check if any processes are still running
     REMAINING_PIDS=$(pgrep -f "airflow" || true)
     if [ -n "$REMAINING_PIDS" ]; then
-        echo "⚠️ 強制終止剩餘進程: $REMAINING_PIDS"
+        echo "Forcefully terminating remaining processes: $REMAINING_PIDS"
         for pid in $REMAINING_PIDS; do
             kill -9 $pid 2>/dev/null || true
         done
     fi
-    
-    echo "✅ Airflow 進程已停止"
+
+    echo "Airflow processes have been stopped"
 fi
 
-# 檢查端口是否還被佔用
+# Check if port is still in use
 if lsof -i :8080 > /dev/null 2>&1; then
-    echo "⚠️ 端口 8080 仍被佔用"
+    echo "Port 8080 is still in use"
     PORT_PID=$(lsof -ti :8080)
     if [ -n "$PORT_PID" ]; then
-        echo "🔄 終止佔用端口 8080 的進程 $PORT_PID"
+        echo "Terminating process $PORT_PID occupying port 8080"
         kill -9 $PORT_PID 2>/dev/null || true
     fi
 fi
 
-# 最終檢查
+# Final status check
 sleep 1
 if pgrep -f "airflow" > /dev/null; then
-    echo "❌ 部分 Airflow 進程可能仍在運行"
-    echo "📋 剩餘進程:"
+    echo "Some Airflow processes may still be running"
+    echo "Remaining processes:"
     pgrep -f "airflow" -l || true
 else
-    echo "✅ 所有 Airflow 進程已成功停止"
+    echo "All Airflow processes have been stopped"
 fi
 
 if ! lsof -i :8080 > /dev/null 2>&1; then
-    echo "✅ 端口 8080 已釋放"
+    echo "Port 8080 has been released"
 else
-    echo "⚠️ 端口 8080 仍被佔用"
+    echo "Port 8080 is still in use"
 fi
 
-echo "🛑 停止完成"
+echo "Stopping completed"

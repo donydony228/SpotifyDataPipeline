@@ -1,38 +1,38 @@
 #!/bin/bash
 # scripts/start_local_airflow.sh
-# 本地 Airflow 啟動腳本（不使用容器）
+# Local Airflow startup script (without containers)
 
 set -e
 
-echo "🎵 啟動音樂資料工程平台 - 本地模式"
+echo "Starting Music Data Engineering Platform - Local Mode"
 echo "==============================================="
 
-# 檢查虛擬環境
+# Check virtual environment
 if [ ! -d "venv" ]; then
-    echo "❌ 虛擬環境不存在，請先執行: make venv-setup"
+    echo "Virtual environment not found! Please run: make venv-setup"
     exit 1
 fi
 
-# 啟動虛擬環境
-echo "🐍 啟動虛擬環境..."
+# Activate virtual environment
+echo "Activating virtual environment..."
 source venv/bin/activate
 
-# 檢查必要套件
-echo "📦 檢查套件安裝..."
+# Check required packages
+echo "Checking package installation..."
 python -c "import airflow" 2>/dev/null || {
-    echo "❌ Airflow 未安裝，安裝中..."
+    echo "Airflow not found in virtual environment. Installing required packages..."
     pip install -r requirements.txt
 }
 
-# 設置 Airflow Home
+# Set Airflow Home
 export AIRFLOW_HOME=$(pwd)/airflow_home
 mkdir -p $AIRFLOW_HOME
-echo "📁 AIRFLOW_HOME: $AIRFLOW_HOME"
+echo "AIRFLOW_HOME: $AIRFLOW_HOME"
 
-# 載入環境變數
-echo "📝 載入環境變數..."
+# Load environment variables
+echo "Loading environment variables..."
 if [ -f .env ]; then
-    # 使用 python-dotenv 正確載入環境變數
+    # Use python-dotenv to load environment variables correctly
     export $(python -c "
 from dotenv import load_dotenv
 import os
@@ -41,18 +41,18 @@ for key, value in os.environ.items():
     if any(key.startswith(prefix) for prefix in ['SPOTIFY_', 'SUPABASE_', 'MONGODB_', 'AIRFLOW__']):
         print(f'{key}={value}')
 ")
-    echo "✅ 環境變數已載入"
-    
-    # 複製 .env 到 Airflow home 以防萬一
+    echo "Environment variables loaded from .env"
+
+    # Copy .env to Airflow home as a backup
     cp .env $AIRFLOW_HOME/.env
 else
-    echo "❌ .env 檔案不存在！"
-    echo "請執行: make env-setup"
+    echo ".env file not found! Please create one with the necessary environment variables."
+    echo "Usage: make env-setup"
     exit 1
 fi
 
-# 檢查關鍵環境變數
-echo "🔍 檢查環境變數..."
+# Check required environment variables
+echo "Checking environment variables..."
 python -c "
 import os
 spotify_vars = ['SPOTIFY_CLIENT_ID', 'SPOTIFY_CLIENT_SECRET']
@@ -61,14 +61,14 @@ for var in spotify_vars:
     if not os.getenv(var):
         missing.append(var)
 if missing:
-    print(f'❌ 缺少環境變數: {missing}')
+    print(f'Missing environment variables: {missing}')
     exit(1)
 else:
-    print('✅ Spotify 環境變數已設定')
+    print('Spotify environment variables are set correctly.')
 "
 
-# 設置 Airflow 配置
-echo "⚙️ 設置 Airflow 配置..."
+# Set Airflow configuration
+echo "Setting Airflow configuration..."
 export AIRFLOW__CORE__EXECUTOR=SequentialExecutor
 export AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:///${AIRFLOW_HOME}/airflow.db
 export AIRFLOW__CORE__LOAD_EXAMPLES=False
@@ -76,94 +76,68 @@ export AIRFLOW__CORE__DAGS_FOLDER=$(pwd)/dags
 export AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True
 export AIRFLOW__LOGGING__LOGGING_LEVEL=INFO
 
-# 檢查是否已經在運行
+# Check if Airflow is already running
 if pgrep -f "airflow standalone" > /dev/null; then
-    echo "ℹ️ Airflow 已在運行"
-    echo "🌐 訪問: http://localhost:8080"
-    echo "👤 用戶名: admin / 密碼: admin"
+    echo "Airflow is already running"
+    echo "Access: http://localhost:8080"
+    echo "Username: admin / Password: admin"
     exit 0
 fi
 
-# 初始化資料庫（如果需要）
+# Initialize database (if needed)
 if [ ! -f "$AIRFLOW_HOME/airflow.db" ]; then
-    echo "🗄️ 初始化 Airflow 資料庫..."
+    echo "Initializing Airflow database..."
     airflow db init
 fi
 
-# 檢查是否需要創建管理員用戶
-# USER_EXISTS=$(airflow users list 2>/dev/null | grep -c "admin" | head -n1 | tr -d ' ' || echo "0")
-# if [ "$USER_EXISTS" -eq "0" ]; then
-#     echo "👤 創建管理員用戶..."
-#     airflow users create \
-#         --username admin \
-#         --firstname Admin \
-#         --lastname User \
-#         --role Admin \
-#         --email admin@musicdata.com \
-#         --password admin123
-# fi
+echo "Starting Airflow standalone..."
+echo "This will start both the webserver and scheduler"
 
-echo "🚀 啟動 Airflow standalone..."
-echo "💡 這會同時啟動 webserver 和 scheduler"
-
-# 創建 logs 目錄
+# Create logs directory
 mkdir -p $AIRFLOW_HOME/logs
 
-# 啟動 Airflow standalone (背景執行)
+# Start Airflow standalone (background)
 nohup airflow standalone > $AIRFLOW_HOME/logs/standalone.log 2>&1 &
 AIRFLOW_PID=$!
 
-echo "🔄 等待 Airflow 啟動..."
-echo "📊 進程 ID: $AIRFLOW_PID"
+echo "Waiting for Airflow to start..."
+echo "Process ID: $AIRFLOW_PID"
 
-# 等待啟動完成
+# Wait for startup to complete
 for i in {1..30}; do
     echo -n "."
     sleep 2
     
-    # 檢查進程是否還在運行
+    # Check if Airflow process is still running
     if ! kill -0 $AIRFLOW_PID 2>/dev/null; then
         echo ""
-        echo "❌ Airflow 進程意外退出"
-        echo "📋 錯誤日誌:"
+        echo "Airflow process exited unexpectedly"
+        echo "Error log:"
         tail -20 $AIRFLOW_HOME/logs/standalone.log
         exit 1
     fi
-    
-    # 檢查 web server 是否已啟動
+
+    # Check if web server is up
     if curl -s http://localhost:8080/health > /dev/null 2>&1; then
         echo ""
-        echo "✅ Airflow 啟動成功！"
+        echo "Airflow started successfully!"
         break
     fi
 done
 
-# 最終狀態檢查
+# Final status check
 if curl -s http://localhost:8080/health > /dev/null 2>&1; then
     echo ""
-    echo "🎉 音樂資料工程平台已啟動！"
+    echo "Music Data Engineering Platform is up and running!"
     echo "=============================="
-    echo "🌐 Web UI: http://localhost:8080"
+    echo "Web UI: http://localhost:8080"
     echo ""
-    echo "📊 系統資訊:"
-    echo "  • 進程 ID: $AIRFLOW_PID"
-    echo "  • 執行器: SequentialExecutor"
-    echo "  • 資料庫: SQLite (本地)"
-    echo "  • DAGs 目錄: $(pwd)/dags"
-    echo ""
-    echo "📋 管理指令:"
-    echo "  • 檢查狀態: make dev-status"
-    echo "  • 查看日誌: make logs"
-    echo "  • 停止服務: make stop"
-    echo "  • 測試環境變數: make env-check"
-    echo ""
-    echo "💡 如果看不到 DAGs，請檢查 dags/ 目錄中的檔案"
 else
     echo ""
-    echo "⚠️ Airflow 啟動時間較長，請稍候..."
-    echo "📋 查看日誌: tail -f $AIRFLOW_HOME/logs/standalone.log"
-    echo "🔍 手動檢查狀態: make dev-status"
+    echo "Airflow startup is taking longer than expected, please wait..."
+    echo "Check logs: tail -f $AIRFLOW_HOME/logs/standalone.log"
+    echo "Check status manually: make dev-status"
 fi
 
 echo ""
-echo "✅ 啟動腳本執行完成"
+echo "Startup script execution completed"

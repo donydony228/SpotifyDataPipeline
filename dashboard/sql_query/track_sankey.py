@@ -16,10 +16,8 @@ def track_sankey_load_data(_db_manager: SupabaseManager) -> pd.DataFrame:
             dt.track_name,
             dt.first_heard,
             
-            -- 直接計算，不依賴 total_plays
             COUNT(fl.listening_key) as actual_total_plays,
             
-            -- 計算首次聽到後的播放模式
             COUNT(CASE WHEN fl.played_at::date = dt.first_heard THEN 1 END) as first_day_plays,
             COUNT(CASE WHEN fl.played_at::date BETWEEN dt.first_heard AND dt.first_heard + INTERVAL '7 days' THEN 1 END) as first_week_plays,
             COUNT(CASE WHEN fl.played_at::date BETWEEN dt.first_heard AND dt.first_heard + INTERVAL '30 days' THEN 1 END) as first_month_plays,
@@ -33,7 +31,7 @@ def track_sankey_load_data(_db_manager: SupabaseManager) -> pd.DataFrame:
             AND dt.first_heard >= CURRENT_DATE - INTERVAL '6 months'
             AND fl.played_at IS NOT NULL
         GROUP BY dt.track_key, dt.track_name, dt.first_heard
-        HAVING COUNT(fl.listening_key) > 0  -- 確保有播放記錄
+        HAVING COUNT(fl.listening_key) > 0  
     )
     SELECT 
         track_name,
@@ -43,7 +41,6 @@ def track_sankey_load_data(_db_manager: SupabaseManager) -> pd.DataFrame:
         first_week_plays,
         first_month_plays,
         
-        -- 基於實際播放次數的分類
         CASE 
             WHEN actual_total_plays = 1 THEN 'One Hit Wonder'
             WHEN actual_total_plays BETWEEN 2 AND 5 THEN 'Casual Listen'

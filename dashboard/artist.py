@@ -3,10 +3,6 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-# import matplotlib.pyplot as plt
-# import squarify
-# import matplotlib.colors as mcolors
-# from plotly.subplots import make_subplots
 
 from database_manager import SupabaseManager
 from sql_query.artist_gender import gender_violin_load_data, gender_bar_load_data, gender_bar_by_date

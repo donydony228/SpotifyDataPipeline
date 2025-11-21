@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 try:
-    print("🔗 測試 MongoDB Atlas 連線...")
+    print("Testing MongoDB Atlas connection...")
     
     client = MongoClient(
         os.getenv('MONGODB_ATLAS_URL'),
@@ -14,17 +14,17 @@ try:
     )
     
     db = client['music_data']
-    
-    # 測試查詢
+
+    # Test query
     count = db.daily_listening_history.count_documents({})
-    print(f"✅ 連線成功!")
-    print(f"📊 daily_listening_history: {count} 筆資料")
-    
-    # 列出所有 collections
+    print(f"Connection successful!")
+    print(f"daily_listening_history: {count} documents found")
+
+    # List all collections
     collections = db.list_collection_names()
-    print(f"📁 Collections: {collections}")
+    print(f"Collections: {collections}")
     
     client.close()
     
 except Exception as e:
-    print(f"❌ 連線失敗: {e}")
+    print(f"Connection failed: {e}")

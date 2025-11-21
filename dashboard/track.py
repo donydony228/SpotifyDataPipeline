@@ -3,9 +3,6 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-# import matplotlib.pyplot as plt
-# import squarify
-# import matplotlib.colors as mcolors
 
 from database_manager import SupabaseManager
 from sql_query.track_treemap import treemap_track_load_data
@@ -119,15 +116,15 @@ nodes = [
     
 # 2. Define node colors
 node_colors = [
-    "#263647",  # First Listen - 深藍灰
-    "#E74C3C",  # One Hit Wonder - 紅色
-    "#F39C12",  # Casual Listen - 橙色  
-    "#3498DB",  # Regular Play - 藍色
-    "#27AE60",  # Heavy Rotation - 綠色
-    "#1ABC9C",  # Quick Drop - 青色
-    "#16A085",  # Short Term - 深青色
-    "#48C9B0",  # Medium Term - 淺青色
-    "#76D7C4"   # Long Term - 很淺青色
+    "#263647",  # First Listen
+    "#E74C3C",  # One Hit Wonder
+    "#F39C12",  # Casual Listen
+    "#3498DB",  # Regular Play
+    "#27AE60",  # Heavy Rotation
+    "#1ABC9C",  # Quick Drop
+    "#16A085",  # Short Term
+    "#48C9B0",  # Medium Term
+    "#76D7C4"   # Long Term
 ]
 # 3. Define links
 source_nodes = []
@@ -154,13 +151,13 @@ for _, row in lifecycle_flow.iterrows():
     values.append(row['actual_total_plays'])
 
     if row['conversion_category'] == 'Heavy Rotation':
-        link_colors.append("rgba(39, 174, 96, 0.4)")   # 綠色
+        link_colors.append("rgba(39, 174, 96, 0.4)")   
     elif row['conversion_category'] == 'Regular Play':
-        link_colors.append("rgba(52, 152, 219, 0.4)")  # 藍色
+        link_colors.append("rgba(52, 152, 219, 0.4)")  
     elif row['conversion_category'] == 'Casual Listen':
-        link_colors.append("rgba(243, 156, 18, 0.4)")  # 橙色
+        link_colors.append("rgba(243, 156, 18, 0.4)")  
     else:  # One Hit Wonder
-        link_colors.append("rgba(231, 76, 60, 0.4)")   # 紅色
+        link_colors.append("rgba(231, 76, 60, 0.4)")   
 
 # 4. Create Sankey Diagram
 fig_sankey = go.Figure(data=[go.Sankey(
@@ -190,8 +187,8 @@ fig_sankey.update_layout(
     font_size=12,
     height=600,
     width=1000,
-    paper_bgcolor='rgba(0,0,0,0)', #透明背景
-    plot_bgcolor='rgba(255,255,255,0)' #透明背景
+    paper_bgcolor='rgba(0,0,0,0)', 
+    plot_bgcolor='rgba(255,255,255,0)' 
 )
 st.plotly_chart(fig_sankey, use_container_width=True)
 

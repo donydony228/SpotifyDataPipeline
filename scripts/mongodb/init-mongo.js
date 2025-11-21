@@ -1,14 +1,14 @@
-// 美國求職市場資料工程專案 - MongoDB 初始化腳本
+// MongoDB Initialization Script for US Job Data Engineering Project
 
-print('🚀 Initializing US Job Data Engineering MongoDB...');
+print('Initializing US Job Data Engineering MongoDB...');
 
-// 切換到我們的專案資料庫
+// Switch to our project database
 db = db.getSiblingDB('job_market_data');
 
-// 建立集合並插入測試資料
-print('📝 Creating collections...');
+// Create collections and insert test data
+print('Creating collections...');
 
-// 1. 原始爬蟲資料集合
+// 1. Raw jobs data collection
 db.createCollection('raw_jobs_data', {
     validator: {
         $jsonSchema: {
@@ -37,23 +37,23 @@ db.createCollection('raw_jobs_data', {
     }
 });
 
-// 2. 資料品質報告集合
+// 2. Data Quality Reports Collection
 db.createCollection('data_quality_reports');
 
-// 3. 爬蟲執行日誌集合  
+// 3. Scraper Logs Collection
 db.createCollection('scraper_logs');
 
-// 建立索引以提升查詢效能
+// Create indexes to improve query performance
 print('🔍 Creating indexes...');
 
 db.raw_jobs_data.createIndex({ "source": 1, "metadata.scraped_at": -1 });
 db.raw_jobs_data.createIndex({ "metadata.batch_id": 1 });
 db.raw_jobs_data.createIndex({ "job_data.job_id": 1, "source": 1 }, { unique: true });
 
-print('✅ MongoDB initialization completed!');
+print('MongoDB initialization completed!');
 
-// 插入一筆測試資料
-print('📊 Inserting sample data...');
+// Insert a sample document
+print('Inserting sample data...');
 
 db.raw_jobs_data.insertOne({
     source: "linkedin",
@@ -77,4 +77,4 @@ db.raw_jobs_data.insertOne({
     }
 });
 
-print('🎉 Sample data inserted successfully!');
+print('Sample data inserted successfully!');

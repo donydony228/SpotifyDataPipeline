@@ -75,8 +75,8 @@ def hour_ratio_load_data(_db_manager: SupabaseManager) -> pd.DataFrame:
             FROM period_summary_by_day psd
             JOIN day_totals dt ON psd.day_name = dt.day_name
             ORDER BY 
-                psd.day_of_week,  -- 週一到週日
-                period_order;     -- 時段順序
+                psd.day_of_week, 
+                period_order;     
             """
     
     df_raw = pd.DataFrame() 
@@ -100,30 +100,30 @@ def radar_load_data(_db_manager: SupabaseManager) -> pd.DataFrame:
                 SELECT 
                     CASE WHEN dd.is_weekend THEN 'Weekend' ELSE 'Weekday' END as day_type,
                     
-                    -- 聽歌強度分析
+                    -- basic listening metrics
                     COUNT(fl.listening_key) as total_sessions,
                     SUM(fl.listening_minutes) as total_time,
                     AVG(fl.listening_minutes) as avg_session_length,
                     
-                    -- 多樣性分析  
+                    -- Variety metrics 
                     COUNT(DISTINCT fl.track_key) as unique_tracks,
                     COUNT(DISTINCT fl.artist_key) as unique_artists,
                     COUNT(DISTINCT fl.album_key) as unique_albums,
                     
-                    -- 重複播放分析
+                    -- Repeat consumption
                     COUNT(fl.listening_key) / COUNT(DISTINCT fl.track_key) as repeat_ratio,
                     
-                    -- 流行度偏好
+                    -- Content popularity
                     AVG(dt.popularity) as avg_track_popularity,
                     STDDEV(dt.popularity) as track_popularity_variance,
                     
-                    -- 明顯內容偏好
+                    -- Explicit content
                     COUNT(CASE WHEN dt.explicit = true THEN 1 END) as explicit_count,
                     
-                    -- 時間分布
+                    -- Daytime listening
                     AVG(CASE WHEN fl.hour_of_day BETWEEN 6 AND 18 THEN 1 ELSE 0 END) * 100 as daytime_percentage,
                     
-                    -- 活躍度
+                    -- Active days
                     COUNT(DISTINCT dd.date_value) as active_days
                     
                 FROM dwh.fact_listening fl

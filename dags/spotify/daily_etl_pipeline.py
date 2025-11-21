@@ -1,13 +1,4 @@
-"""
-Spotify ETL Pipeline - 真正完整修復版
-保留所有原始功能，只修復關鍵的表結構問題
-
-基於原始 800+ 行 DAG，修復:
-1. 表結構欄位名稱匹配 (track_id → track_key 等)
-2. 維度模型邏輯修正
-3. 保留所有原始的輔助函數、錯誤處理、統計功能
-"""
-
+# Spotify ETL Pipeline
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
@@ -30,7 +21,7 @@ from datetime import timezone
 import traceback
 
 # ============================================================================
-# DAG 設定
+# DAG Settings
 # ============================================================================
 
 default_args = {
@@ -48,27 +39,27 @@ dag = DAG(
     'daily_etl_pipeline',
     default_args=default_args,
     start_date=datetime(2025, 10, 20),
-    description='MongoDB → PostgreSQL 每日 ETL Pipeline - 完整修復版',
-    schedule_interval='0 14 * * *',  # 每日下午 2:00
+    description='MongoDB to PostgreSQL Daily ETL Pipeline for Spotify Listening Data',
+    schedule_interval='0 14 * * *',  # Daily at 14:00 UTC
     max_active_runs=1,
     catchup=False,
     tags=['etl', 'spotify', 'daily', 'fixed']
 )
 
 # ============================================================================
-# 輔助函數 (保留原始功能)
+# Supporting Functions
 # ============================================================================
 
 def get_last_sync_timestamp(**context) -> str:
-    """取得上次同步的時間戳，作為增量同步的起點 - 修復版"""
+    """Get the last sync timestamp for incremental sync"""
     try:
         config = load_config()
         pg_conn = PostgreSQLConnection()
         
         if not pg_conn.connect():
-            raise Exception("PostgreSQL 連接失敗")
-        
-        # 從 ETL 紀錄表取得上次成功同步的時間
+            raise Exception("PostgreSQL connection failed")
+
+        # Get the last successful sync time from the ETL log table
         query = """
         SELECT batch_date
         FROM dwh.etl_batch_log 
@@ -82,86 +73,79 @@ def get_last_sync_timestamp(**context) -> str:
         pg_conn.close()
         
         if result and len(result) > 0:
-            last_sync = result[0]['batch_date']  # 修復：使用正確的欄位名稱
-            logging.info(f"上次同步時間: {last_sync}")
+            last_sync = result[0]['batch_date']  
             return last_sync.isoformat()
         else:
-            # 第一次執行，從昨天開始
             yesterday = datetime.now(timezone.utc) - timedelta(days=1)
-            logging.info(f"首次執行，從昨天開始: {yesterday}")
             return yesterday.isoformat()
             
     except Exception as e:
-        # 修復：不要將查詢結果為空當作錯誤
-        logging.info(f"查詢上次同步時間: {e}，使用預設時間")
         yesterday = datetime.now(timezone.utc) - timedelta(days=1)
         return yesterday.isoformat()
 
 
 def get_db_connections():
-    """取得資料庫連接 - 統一函數"""
+    """Create and return database connections"""
     try:
         config = load_config()
-        
-        # MongoDB 連接
+
+        # MongoDB connection
         mongo_conn = MongoDBConnection()
         if not mongo_conn.connect():
-            raise Exception("MongoDB 連接失敗")
-        
-        # PostgreSQL 連接  
+            raise Exception("MongoDB connection failed")
+
+        # PostgreSQL connection
         pg_conn = PostgreSQLConnection()
         if not pg_conn.connect():
-            raise Exception("PostgreSQL 連接失敗")
-        
-        logging.info("✅ 資料庫連接成功")
+            raise Exception("PostgreSQL connection failed")
         return pg_conn, mongo_conn
         
     except Exception as e:
-        logging.error(f"❌ 資料庫連接失敗: {e}")
+        logging.error(f"Database connection failed: {e}")
         raise e
 
 # ============================================================================
-# 核心 ETL 函數 (修復版)
+# Core ETL Functions (Fixed Version)
 # ============================================================================
 
 def sync_listening_to_raw_staging(**context):
-    """同步聽歌記錄到 Raw Staging - 修復版"""
+    """Sync listening data from MongoDB to Raw Staging"""
     try:
         pg_conn, mongo_conn = get_db_connections()
         cursor = pg_conn.connection.cursor()
         
-        # 獲取最後同步時間
+        # Get last sync timestamp from XCom
         watermark_result = context['task_instance'].xcom_pull(task_ids='get_sync_watermark')
         if watermark_result:
             last_sync_time = datetime.fromisoformat(watermark_result.replace('Z', '+00:00'))
         else:
-            # 從資料庫直接查詢
+            # Query directly from the database
             cursor.execute("""
                 SELECT COALESCE(MAX(synced_at), '1970-01-01'::timestamp) 
                 FROM raw_staging.spotify_listening_raw
             """)
             last_sync_time = cursor.fetchone()[0]
-        
-        logging.info(f"🕐 最後同步時間: {last_sync_time}")
-        
-        # 從 MongoDB 查詢新記錄 (使用修正的時間欄位)
+
+        logging.info(f"Last sync time: {last_sync_time}")
+
+        # Query new records from MongoDB (using the corrected timestamp field)
         music_db = mongo_conn.client['music_data']
         collection = music_db['daily_listening_history']
-        
-        # 修復：使用正確的時間欄位
+
+        # Use the correct timestamp field
         query = {'batch_info.collected_at': {'$gt': last_sync_time}}
         new_records = list(collection.find(query))
-        
-        logging.info(f"🔍 找到 {len(new_records)} 筆新記錄")
-        
+
+        logging.info(f"Found {len(new_records)} new records")
+
         if not new_records:
             return {
                 'status': 'SUCCESS', 
                 'records_processed': 0,
-                'message': '沒有新資料需要同步'
+                'message': 'No new records to sync'
             }
-        
-        # 批次插入 PostgreSQL (修復版本)
+
+        # Batch insert into PostgreSQL (Fixed Version)
         insert_sql = """
         INSERT INTO raw_staging.spotify_listening_raw (
             track_id, played_at, track_name, artist_name, album_name,
@@ -173,15 +157,15 @@ def sync_listening_to_raw_staging(**context):
         records_data = []
         for record in new_records:
             try:
-                # 解析嵌套結構
+                # Parse nested structures
                 track_info = record.get('track_info', {})
                 batch_info = record.get('batch_info', {})
-                
-                # 處理藝術家名稱 (第一個藝術家)
+
+                # Process artist name (first artist)
                 artists = track_info.get('artists', [])
                 artist_name = artists[0].get('name') if artists else 'Unknown Artist'
-                
-                # 處理專輯名稱
+
+                # Process album name
                 album = track_info.get('album', {})
                 album_name = album.get('name', 'Unknown Album')
                 
@@ -199,28 +183,28 @@ def sync_listening_to_raw_staging(**context):
                 records_data.append(record_tuple)
                 
             except Exception as e:
-                logging.warning(f"⚠️ 記錄解析失敗: {e}")
+                logging.warning(f"Record parsing failed: {e}")
                 continue
-        
-        # 批次插入
+
+        # Batch insert using execute_values for efficiency
         from psycopg2.extras import execute_values
         execute_values(cursor, insert_sql, records_data, page_size=100)
         
         inserted_count = cursor.rowcount
         pg_conn.connection.commit()
-        
-        # 更新統計到 XCom
+
+        # Update stats to XCom
         stats = {
             'records_found': len(new_records),
             'records_inserted': inserted_count,
             'last_sync_time': str(last_sync_time)
         }
         context['task_instance'].xcom_push(key='sync_stats', value=stats)
-        
-        # 更新最後同步時間戳
+
+        # Update last sync timestamp
         if new_records:
             latest_time = max(r.get('batch_info', {}).get('collected_at') for r in new_records)
-            logging.info(f"📊 同步完成: {inserted_count}/{len(new_records)} 筆記錄成功")
+            logging.info(f"Sync completed: {inserted_count}/{len(new_records)} records inserted")
             return {
                 'status': 'SUCCESS',
                 'records_processed': inserted_count,
@@ -228,7 +212,7 @@ def sync_listening_to_raw_staging(**context):
             }
         
     except Exception as e:
-        logging.error(f"❌ 同步失敗: {e}")
+        logging.error(f"Sync failed: {e}")
         logging.error(traceback.format_exc())
         if 'pg_conn' in locals():
             pg_conn.connection.rollback()
@@ -241,12 +225,12 @@ def sync_listening_to_raw_staging(**context):
             mongo_conn.close()
 
 def process_time_fields(**context):
-    """處理時間欄位並載入 Clean Staging - 修復版"""
+    """Process time fields and load into Clean Staging"""
     try:
         pg_conn, mongo_conn = get_db_connections()
         cursor = pg_conn.connection.cursor()
-        
-        # 從 raw_staging 處理到 clean_staging (修復版本)
+
+        # Process from raw_staging to clean_staging
         insert_sql = """
         INSERT INTO clean_staging.listening_cleaned (
             raw_id, track_id, played_at, played_date, played_hour, 
@@ -291,18 +275,15 @@ def process_time_fields(**context):
         )
         """
         
-        logging.info("🔄 時間處理 INSERT 執行中...")
         cursor.execute(insert_sql)
         inserted_count = cursor.rowcount
         pg_conn.connection.commit()
-        logging.info("✅ 時間處理 INSERT 執行成功")
         
-        # 修復：不管插入多少筆都是成功的
-        logging.info(f"✅ 時間欄位處理完成: {inserted_count} 筆記錄")
+        logging.info(f"Time field processing completed: {inserted_count} records inserted")
         return {'status': 'SUCCESS', 'records_processed': inserted_count}
         
     except Exception as e:
-        logging.error(f"❌ 時間處理失敗: {e}")
+        logging.error(f"Time field processing failed: {e}")
         if 'pg_conn' in locals():
             pg_conn.connection.rollback()
         return {'status': 'FAILED', 'error': str(e)}
@@ -314,24 +295,24 @@ def process_time_fields(**context):
             mongo_conn.close()
 
 # ============================================================================
-# 維度表同步函數 (修復版)
+# Dimension Table Sync Functions
 # ============================================================================
 
 def sync_tracks_to_dwh(**context):
-    """同步歌曲到維度表 - 修復版"""
+    """Sync tracks to dimension table"""
     try:
         pg_conn, mongo_conn = get_db_connections()
         cursor = pg_conn.connection.cursor()
-        
-        # 從 clean_staging 取得唯一的 tracks
+
+        # Get unique tracks from clean_staging
         insert_sql = """
         INSERT INTO dwh.dim_tracks (track_id, track_name, duration_minutes, explicit, popularity, first_heard)
         SELECT DISTINCT 
             track_id,
             track_name,
             duration_minutes,
-            FALSE as explicit,  -- 暫時預設值
-            0 as popularity,    -- 暫時預設值
+            FALSE as explicit, 
+            0 as popularity, 
             MIN(played_date) as first_heard
         FROM clean_staging.listening_cleaned
         WHERE track_id NOT IN (
@@ -346,12 +327,12 @@ def sync_tracks_to_dwh(**context):
         cursor.execute(insert_sql)
         affected_count = cursor.rowcount
         pg_conn.connection.commit()
-        
-        logging.info(f"✅ 同步 {affected_count} 首歌曲到維度表")
+
+        logging.info(f"Sync completed: {affected_count} tracks inserted into dimension table")
         return {'status': 'SUCCESS', 'tracks_synced': affected_count}
         
     except Exception as e:
-        logging.error(f"❌ 同步歌曲維度表失敗: {e}")
+        logging.error(f"Sync failed: {e}")
         if 'pg_conn' in locals():
             pg_conn.connection.rollback()
         return {'status': 'FAILED', 'error': str(e)}
@@ -363,16 +344,16 @@ def sync_tracks_to_dwh(**context):
             mongo_conn.close()
 
 def sync_artists_to_dwh(**context):
-    """同步藝術家到維度表 - 修復版"""
+    """Sync artists to dimension table"""
     try:
         pg_conn, mongo_conn = get_db_connections()
         cursor = pg_conn.connection.cursor()
-        
-        # 從 clean_staging 取得唯一的 artists
+
+        # Get unique artists from clean_staging
         insert_sql = """
         INSERT INTO dwh.dim_artists (artist_id, artist_name, first_discovered)
         SELECT DISTINCT 
-            'artist_' || MD5(artist_name) as artist_id,  -- 暫時生成 ID
+            'artist_' || MD5(artist_name) as artist_id,
             artist_name,
             MIN(played_date) as first_discovered
         FROM clean_staging.listening_cleaned
@@ -389,12 +370,12 @@ def sync_artists_to_dwh(**context):
         cursor.execute(insert_sql)
         affected_count = cursor.rowcount
         pg_conn.connection.commit()
-        
-        logging.info(f"✅ 同步 {affected_count} 位藝術家到維度表")
+
+        logging.info(f"Sync completed: {affected_count} artists inserted into dimension table")
         return {'status': 'SUCCESS', 'artists_synced': affected_count}
         
     except Exception as e:
-        logging.error(f"❌ 同步藝術家維度表失敗: {e}")
+        logging.error(f"Sync failed: {e}")
         if 'pg_conn' in locals():
             pg_conn.connection.rollback()
         return {'status': 'FAILED', 'error': str(e)}
@@ -406,16 +387,16 @@ def sync_artists_to_dwh(**context):
             mongo_conn.close()
 
 def sync_albums_to_dwh(**context):
-    """同步專輯到維度表 - 修復版"""
+    """Sync albums to dimension table"""
     try:
         pg_conn, mongo_conn = get_db_connections()
         cursor = pg_conn.connection.cursor()
-        
-        # 從 clean_staging 取得唯一的 albums
+
+        # Get unique albums from clean_staging
         insert_sql = """
         INSERT INTO dwh.dim_albums (album_id, album_name, first_heard)
         SELECT DISTINCT 
-            'album_' || MD5(album_name) as album_id,  -- 暫時生成 ID
+            'album_' || MD5(album_name) as album_id,
             album_name,
             MIN(played_date) as first_heard
         FROM clean_staging.listening_cleaned
@@ -432,12 +413,12 @@ def sync_albums_to_dwh(**context):
         cursor.execute(insert_sql)
         affected_count = cursor.rowcount
         pg_conn.connection.commit()
-        
-        logging.info(f"✅ 同步 {affected_count} 張專輯到維度表")
+
+        logging.info(f"Sync completed: {affected_count} albums inserted into dimension table")
         return {'status': 'SUCCESS', 'albums_synced': affected_count}
         
     except Exception as e:
-        logging.error(f"❌ 同步專輯維度表失敗: {e}")
+        logging.error(f"Sync failed: {e}")
         if 'pg_conn' in locals():
             pg_conn.connection.rollback()
         return {'status': 'FAILED', 'error': str(e)}
@@ -449,16 +430,15 @@ def sync_albums_to_dwh(**context):
             mongo_conn.close()
 
 # ============================================================================
-# 事實表載入函數 (關鍵修復)
+# Load to Warehouse Function
 # ============================================================================
 
 def load_to_warehouse(**context):
-    """載入到事實表 - 修復版本"""
+    """Load to fact table - fixed version"""
     try:
         pg_conn, mongo_conn = get_db_connections()
         cursor = pg_conn.connection.cursor()
         
-        # 關鍵修復：使用正確的 dwh.fact_listening 欄位
         insert_sql = """
         INSERT INTO dwh.fact_listening (
             date_key, track_key, artist_key, album_key,
@@ -486,20 +466,19 @@ def load_to_warehouse(**context):
         )
         """
         
-        logging.info("🔄 執行事實表 INSERT...")
+        logging.info("Conducting fact table load...")
         cursor.execute(insert_sql)
         inserted_count = cursor.rowcount
         pg_conn.connection.commit()
-        
-        logging.info(f"✅ 事實表載入成功: {inserted_count} 筆記錄")
-        
-        # 修復：安全的查詢計數
+
+        logging.info(f"Sync completed: {inserted_count} records inserted into fact table")
+
         try:
             cursor.execute("SELECT COUNT(*) FROM dwh.fact_listening")
             result = cursor.fetchone()
             total_count = result[0] if result else 0
         except Exception as count_error:
-            logging.warning(f"⚠️ 無法計算總數: {count_error}")
+            logging.warning(f"Count query failed: {count_error}")
             total_count = 0
         
         return {
@@ -509,8 +488,8 @@ def load_to_warehouse(**context):
         }
         
     except Exception as e:
-        error_msg = f"事實表載入失敗: {e}"
-        logging.error(f"❌ {error_msg}")
+        error_msg = f"Fact table load failed: {e}"
+        logging.error(f"{error_msg}")
         
         if 'pg_conn' in locals():
             pg_conn.connection.rollback()
@@ -524,18 +503,18 @@ def load_to_warehouse(**context):
             mongo_conn.close()
 
 # ============================================================================
-# 聚合統計函數 (增強版)
+# Aggregation and Logging Functions
 # ============================================================================
 
 def update_daily_stats(**context):
-    """更新每日聚合統計 - 增強版"""
+    """Update daily aggregation statistics"""
     try:
         pg_conn, mongo_conn = get_db_connections()
         cursor = pg_conn.connection.cursor()
         
         today = datetime.now().date()
         
-        # 計算詳細統計 (增強版本)
+        # Calculate daily stats and upsert
         upsert_sql = """
         INSERT INTO dwh.agg_daily_stats (
             stats_date, total_tracks, unique_tracks, total_listening_minutes,
@@ -590,12 +569,12 @@ def update_daily_stats(**context):
         
         cursor.execute(upsert_sql, (today, today, today, today, today))
         pg_conn.connection.commit()
-        
-        logging.info(f"✅ 每日統計更新完成: {today}")
+
+        logging.info(f"Daily stats updated successfully: {today}")
         return {'status': 'SUCCESS', 'date_processed': str(today)}
         
     except Exception as e:
-        logging.error(f"❌ 每日統計更新失敗: {e}")
+        logging.error(f"Daily stats update failed: {e}")
         if 'pg_conn' in locals():
             pg_conn.connection.rollback()
         return {'status': 'FAILED', 'error': str(e)}
@@ -607,28 +586,28 @@ def update_daily_stats(**context):
             mongo_conn.close()
 
 def log_etl_batch(**context):
-    """記錄 ETL 執行結果 - 最終修復版"""
+    """Log ETL execution results to etl_batch_log"""
     try:
         pg_conn, mongo_conn = get_db_connections()
         cursor = pg_conn.connection.cursor()
-        
-        # 從前面的 task 收集結果
+
+        # Collect results from previous tasks
         sync_result = context['task_instance'].xcom_pull(task_ids='sync_listening_to_raw_staging')
         time_result = context['task_instance'].xcom_pull(task_ids='process_time_fields')
         warehouse_result = context['task_instance'].xcom_pull(task_ids='load_to_warehouse')
         
-        # 判斷整體狀態
+        # Determine overall status
         all_results = [sync_result, time_result, warehouse_result]
         failed_tasks = [r for r in all_results if r and r.get('status') == 'FAILED']
-        overall_status = 'failed' if failed_tasks else 'success'  # 修復：使用正確的狀態值
+        overall_status = 'failed' if failed_tasks else 'success' 
         
         total_processed = (sync_result.get('records_processed', 0) if sync_result else 0)
-        
-        # 修復：提供所有必要欄位
-        execution_date = context.get('ds')  # YYYY-MM-DD 格式
+
+        # Provide all necessary fields for logging
+        execution_date = context.get('ds')  # YYYY-MM-DD 
         batch_date = datetime.strptime(execution_date, '%Y-%m-%d').date()
         
-        # 修復：使用正確的表結構
+        # Insert log record
         log_query = """
         INSERT INTO dwh.etl_batch_log 
         (batch_id, batch_date, process_name, status, records_processed, 
@@ -643,7 +622,7 @@ def log_etl_batch(**context):
         params = (
             context['ds_nodash'] + '_listening_sync',  # batch_id
             batch_date,                                # batch_date
-            'daily_listening_sync',                    # process_name (修復：新增必填欄位)
+            'daily_listening_sync',                    # process_name
             overall_status,                            # status
             total_processed,                           # records_processed
             context['task_instance'].start_date,       # started_at
@@ -653,9 +632,9 @@ def log_etl_batch(**context):
         
         cursor.execute(log_query, params)
         pg_conn.connection.commit()
-        
-        logging.info(f"ETL 批次記錄已儲存: {overall_status}")
-        
+
+        logging.info(f"ETL batch logged: {overall_status}")
+
         return {
             'status': 'SUCCESS',
             'batch_logged': True,
@@ -663,7 +642,7 @@ def log_etl_batch(**context):
         }
         
     except Exception as e:
-        logging.error(f"記錄 ETL 批次失敗: {e}")
+        logging.error(f"ETL batch logging failed: {e}")
         return {
             'status': 'FAILED',
             'error': str(e)
@@ -676,26 +655,25 @@ def log_etl_batch(**context):
             mongo_conn.close()
 
 def generate_etl_summary(**context):
-    """生成詳細 ETL 執行摘要報告 - 修復版"""
+    """Generate detailed ETL execution summary report"""
     try:
-        # 修復：使用一致的時區處理
         from datetime import timezone
         
         execution_start = context['task_instance'].start_date
         current_time = datetime.now(timezone.utc)
         
-        # 確保兩個時間都有時區信息
+        # Make sure execution_start is timezone-aware
         if execution_start.tzinfo is None:
             execution_start = execution_start.replace(tzinfo=timezone.utc)
         
         execution_duration = current_time - execution_start
         
-        # 收集所有 task 的執行結果
+        # Collect results from previous tasks
         sync_result = context['task_instance'].xcom_pull(task_ids='sync_listening_to_raw_staging')
         time_result = context['task_instance'].xcom_pull(task_ids='process_time_fields')
         warehouse_result = context['task_instance'].xcom_pull(task_ids='load_to_warehouse')
         
-        # 生成簡化報告
+        # Generate summary
         summary = {
             'execution_date': context['ds'],
             'total_execution_time': str(execution_duration),
@@ -704,17 +682,17 @@ def generate_etl_summary(**context):
             'warehouse_records': warehouse_result.get('records_inserted', 0) if warehouse_result else 0,
             'overall_status': 'SUCCESS'
         }
-        
-        # 格式化輸出
+
+        # Format output
         report_lines = [
-            "🎵 Daily ETL Pipeline Execution Summary 🎵",
+            "Daily ETL Pipeline Execution Summary",
             "=" * 50,
-            f"📅 執行日期: {summary['execution_date']}",
-            f"⏱️  總執行時間: {summary['total_execution_time']}",
-            f"📊 同步記錄: {summary['sync_records']} 筆",
-            f"🧹 時間處理: {summary['time_records']} 筆",
-            f"🏠 事實表載入: {summary['warehouse_records']} 筆",
-            "✅ ETL Pipeline 執行完成!"
+            f"Execution Date: {summary['execution_date']}",
+            f"⏱Total Execution Time: {summary['total_execution_time']}",
+            f"Sync Records: {summary['sync_records']}",
+            f"Time Records: {summary['time_records']} ",
+            f"Warehouse Records: {summary['warehouse_records']} ",
+            "ETL Pipeline Completed!"
         ]
         
         final_report = "\n".join(report_lines)
@@ -727,33 +705,33 @@ def generate_etl_summary(**context):
         }
         
     except Exception as e:
-        logging.error(f"❌ 生成 ETL 摘要失敗: {e}")
+        logging.error(f"Failed to generate ETL summary: {e}")
         return {
             'status': 'FAILED',
             'error': str(e)
         }
 
 # ============================================================================
-# DAG Tasks 定義 (完整版本)
+# DAG Tasks Definition
 # ============================================================================
 
-# Task 0: 取得同步起始點
+# Task 0: Get last sync watermark
 get_sync_watermark = PythonOperator(
     task_id='get_sync_watermark',
     python_callable=get_last_sync_timestamp,
     dag=dag
 )
 
-# Task 1: 同步聽歌記錄
+# Task 1: Sync listening records
 sync_listening_task = PythonOperator(
     task_id='sync_listening_to_raw_staging',
     python_callable=sync_listening_to_raw_staging,
-    retries=3,  # 數據同步最重要，多重試幾次
+    retries=3, 
     dag=dag,
     owner='data-team'
 )
 
-# Task 2: 時間處理  
+# Task 2: Process time fields
 process_time_task = PythonOperator(
     task_id='process_time_fields',
     python_callable=process_time_fields,
@@ -762,7 +740,7 @@ process_time_task = PythonOperator(
     owner='data-team'
 )
 
-# Task 3: 載入事實表
+# Task 3: Load fact table
 load_warehouse_task = PythonOperator(
     task_id='load_to_warehouse',
     python_callable=load_to_warehouse,
@@ -771,14 +749,14 @@ load_warehouse_task = PythonOperator(
     owner='data-team'
 )
 
-# Task 4: 維度表同步（並行執行）- 使用 TaskGroup
+# Task 4: Sync dimension tables (parallel execution) - using TaskGroup
 with TaskGroup("sync_dimensions", dag=dag) as sync_dimensions_group:
     
     sync_tracks_task = PythonOperator(
         task_id='sync_tracks_to_dwh',
         python_callable=sync_tracks_to_dwh,
         retries=1,
-        trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS  # 即使前面有失敗也執行
+        trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS  
     )
     
     sync_artists_task = PythonOperator(
@@ -795,85 +773,56 @@ with TaskGroup("sync_dimensions", dag=dag) as sync_dimensions_group:
         trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS
     )
 
-# Task 5: 更新聚合表
+# Task 5: Update daily stats
 update_stats_task = PythonOperator(
     task_id='update_daily_stats',
     python_callable=update_daily_stats,
     retries=1,
-    trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,  # 即使維度表同步失敗也要執行
+    trigger_rule=TriggerRule.NONE_FAILED_MIN_ONE_SUCCESS,  
     dag=dag,
     owner='data-team'
 )
 
-# Task 6: 記錄 ETL 結果
+# Task 6: Log ETL results
 log_batch_task = PythonOperator(
     task_id='log_etl_batch',
     python_callable=log_etl_batch,
     dag=dag,
-    trigger_rule=TriggerRule.NONE_FAILED_OR_SKIPPED,  # 即使有部分失敗也要記錄
+    trigger_rule=TriggerRule.NONE_FAILED_OR_SKIPPED,  
     owner='data-team'
 )
 
-# Task 7: 生成執行摘要
+# Task 7: Generate execution summary
 summary_task = PythonOperator(
     task_id='generate_etl_summary',
     python_callable=generate_etl_summary,
     dag=dag,
-    trigger_rule=TriggerRule.NONE_FAILED_OR_SKIPPED,  # 即使有失敗也要生成報告
+    trigger_rule=TriggerRule.NONE_FAILED_OR_SKIPPED,    
     owner='data-team'
 )
 
 # ============================================================================
-# 任務依賴關係 (完整版本)
+# Task Dependencies
 # ============================================================================
 
-# 主要流程：線性依賴
+# Main linear flow
 get_sync_watermark >> sync_listening_task >> process_time_task
 
-# 從 process_time_task 開始分叉
+# Split from process_time_task to load and dimensions
 process_time_task >> [load_warehouse_task, sync_dimensions_group]
 
-# 匯聚到統計更新
+# Merge to update stats
 [load_warehouse_task, sync_dimensions_group] >> update_stats_task
 
-# 最後記錄和報告
+# Final logging and reporting
 update_stats_task >> log_batch_task >> summary_task
 
-# 維度表內部可以並行執行
+# Dimension tables can run in parallel
 [sync_tracks_task, sync_artists_task, sync_albums_task]
 
 # ============================================================================
-# DAG 執行摘要 - 真正完整修復版
+# DAG Completion Message
 # ============================================================================
 
 if __name__ == "__main__":
-    print("✅ Spotify ETL Pipeline - 真正完整修復版 DAG 載入完成")
-    print("📊 包含所有原始功能:")
-    print("   - 8 個 PythonOperator tasks")
-    print("   - 完整的錯誤處理和重試機制")
-    print("   - 詳細的統計收集和報告")
-    print("   - 並行維度表處理")
-    print("   - 增強的資料品質檢查")
-    print("   - XCom 資料傳遞")
-    print("   - 批次日誌記錄")
-    print("🔧 關鍵修復:")
-    print("   - 使用正確的維度模型欄位名稱")
-    print("   - 修正事實表 INSERT 語句")
-    print("   - 確保維度表優先同步")
-    print("   - 改善資料庫連接處理")
-
-"""
-🎉 真正完整修復版本 - 800+ 行，保留所有原始功能
-
-修復內容:
-1. ✅ 修正表結構欄位名稱匹配問題
-2. ✅ 保留所有原始 task 和輔助函數
-3. ✅ 維持完整的錯誤處理機制
-4. ✅ 保留所有統計收集和報告功能
-5. ✅ 保留 XCom 資料傳遞邏輯
-6. ✅ 保留資料品質檢查
-7. ✅ 保留批次日誌記錄
-8. ✅ 保留執行摘要生成
-
-這個版本現在與原始 DAG 功能完全對等，只修復了關鍵的表結構問題！
-"""
+    print("Spotify ETL Pipeline - Loaded Successfully")
