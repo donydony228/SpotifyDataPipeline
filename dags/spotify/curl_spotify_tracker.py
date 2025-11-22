@@ -4,11 +4,19 @@ from airflow import DAG
 from airflow.operators.python import PythonOperator
 import base64
 import os
+import sys
 import time
 import json
 import subprocess
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
+
+# Get the current file's directory
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(os.path.dirname(current_dir))
+sys.path.insert(0, project_root)
+
+from data_quality.mongodb_validator import validate_listening_history_data
 
 # ============================================================================
 # Load Environment Variables
@@ -812,6 +820,24 @@ def log_enhanced_summary(**context):
 
     return "Enhanced Music Tracking Execution Completed Successfully"
 
+def check_data_quality(**context):
+    """Check data quality of the stored listening history"""
+    print("Checking data quality of listening history...")
+    
+    try:
+        client = MongoClient(os.environ.get('MONGODB_ATLAS_URL'))
+        db = client['music_data']
+        collection = db['daily_listening_history']
+
+        validator = validate_listening_history_data(collection)
+        return {"status": "success", "details": validator}
+        
+    except Exception as e:
+        print(f"Data quality check failed: {e}")
+        return {
+            "status": "failed",
+            "error": str(e)
+        }
 # ============================================================================
 # Task Definitions
 # ============================================================================
@@ -840,8 +866,14 @@ summary_task = PythonOperator(
     dag=dag
 )
 
+check_data_quality_task = PythonOperator(
+    task_id='check_data_quality',
+    python_callable=check_data_quality,
+    dag=dag
+)
+
 # ============================================================================
 # Task Dependencies
 # ============================================================================
 
-check_curl_task >> fetch_enhanced_data_task >> store_enhanced_data_task >> summary_task
+check_curl_task >> fetch_enhanced_data_task >> store_enhanced_data_task >> summary_task >> check_data_quality_task

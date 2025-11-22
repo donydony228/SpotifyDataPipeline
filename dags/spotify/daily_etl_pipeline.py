@@ -6,6 +6,7 @@ from airflow.utils.task_group import TaskGroup
 from airflow.models import Variable
 from airflow.exceptions import AirflowSkipException
 from airflow.utils.trigger_rule import TriggerRule
+from pymongo import MongoClient
 
 import sys
 import os
@@ -22,11 +23,7 @@ import traceback
 
 # Get the current file's directory
 current_dir = os.path.dirname(os.path.abspath(__file__))
-
-# Get the project root directory (assuming 'dags' is one level below the root)
 project_root = os.path.dirname(os.path.dirname(current_dir))
-
-# Add the project root to the Python path
 sys.path.insert(0, project_root)
 
 from data_quality.dwh_fact_validator import validate_dwh_fact_listening_data
