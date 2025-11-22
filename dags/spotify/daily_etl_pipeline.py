@@ -20,6 +20,17 @@ import pymongo
 from datetime import timezone
 import traceback
 
+# Get the current file's directory
+current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# Get the project root directory (assuming 'dags' is one level below the root)
+project_root = os.path.dirname(os.path.dirname(current_dir))
+
+# Add the project root to the Python path
+sys.path.insert(0, project_root)
+
+from data_quality.dwh_fact_validator import validate_dwh_fact_listening_data
+
 # ============================================================================
 # DAG Settings
 # ============================================================================
@@ -711,6 +722,38 @@ def generate_etl_summary(**context):
             'error': str(e)
         }
 
+def check_dwh_fact_data_quality(**context):
+    """Check data quality of dwh.fact_listening"""
+    try:
+        pg_conn, mongo_conn = get_db_connections()
+        
+        query = "SELECT * FROM dwh.fact_listening LIMIT 200;"
+        df = pg_conn.execute_query(query)
+        
+        # Transform to DataFrame
+        df = pd.DataFrame(df)
+
+        validation_results = validate_dwh_fact_listening_data(df)
+        logging.info(f"Data Quality Validation Results: {validation_results}")
+        
+        return {
+            'status': 'SUCCESS',
+            'validation_results': validation_results
+        }
+        
+    except Exception as e:
+        logging.error(f"Data quality check failed: {e}")
+        return {
+            'status': 'FAILED',
+            'error': str(e)
+        }
+    
+    finally:
+        if 'pg_conn' in locals():
+            pg_conn.close()
+        if 'mongo_conn' in locals():
+            mongo_conn.close()
+
 # ============================================================================
 # DAG Tasks Definition
 # ============================================================================
@@ -801,6 +844,15 @@ summary_task = PythonOperator(
     owner='data-team'
 )
 
+# Task 8: Data Quality Check
+data_quality_task = PythonOperator(
+    task_id='check_dwh_fact_data_quality',
+    python_callable=check_dwh_fact_data_quality,
+    dag=dag,
+    trigger_rule=TriggerRule.NONE_FAILED_OR_SKIPPED,  
+    owner='data-team'
+)
+
 # ============================================================================
 # Task Dependencies
 # ============================================================================
@@ -815,7 +867,7 @@ process_time_task >> [load_warehouse_task, sync_dimensions_group]
 [load_warehouse_task, sync_dimensions_group] >> update_stats_task
 
 # Final logging and reporting
-update_stats_task >> log_batch_task >> summary_task
+update_stats_task >> log_batch_task >> summary_task >> data_quality_task
 
 # Dimension tables can run in parallel
 [sync_tracks_task, sync_artists_task, sync_albums_task]
