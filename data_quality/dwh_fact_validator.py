@@ -59,7 +59,7 @@ def validate_dwh_fact_listening_data(dwh_fact_table: pd.DataFrame) -> Dict[str, 
         try:
             result1 = _validate_listening_minutes_range(dwh_fact_table, validation_results)
             results.append(result1)
-            logger.info(f"Rule 1 (listening_minutes range): {'PASSED' if result1 else 'FAILED'}")
+            # logger.info(f"Rule 1 (listening_minutes range): {'PASSED' if result1 else 'FAILED'}")
         except Exception as e:
             logger.error(f"Rule 1 execution failed: {e}")
             validation_results["failed_checks"].append(f"listening_minutes range check execution failed: {e}")
@@ -69,7 +69,7 @@ def validate_dwh_fact_listening_data(dwh_fact_table: pd.DataFrame) -> Dict[str, 
         try:
             result2 = _validate_hour_of_day_range(dwh_fact_table, validation_results)
             results.append(result2)
-            logger.info(f"Rule 2 (hour_of_day range): {'PASSED' if result2 else 'FAILED'}")
+            # logger.info(f"Rule 2 (hour_of_day range): {'PASSED' if result2 else 'FAILED'}")
         except Exception as e:
             logger.error(f"Rule 2 execution failed: {e}")
             validation_results["failed_checks"].append(f"hour_of_day range check execution failed: {e}")
@@ -79,7 +79,7 @@ def validate_dwh_fact_listening_data(dwh_fact_table: pd.DataFrame) -> Dict[str, 
         try:
             result3 = _validate_played_at_time(dwh_fact_table, validation_results)
             results.append(result3)
-            logger.info(f"Rule 3 (played_at time): {'PASSED' if result3 else 'FAILED'}")
+            # logger.info(f"Rule 3 (played_at time): {'PASSED' if result3 else 'FAILED'}")
         except Exception as e:
             logger.error(f"Rule 3 execution failed: {e}")
             validation_results["failed_checks"].append(f"played_at time check execution failed: {e}")
@@ -89,7 +89,7 @@ def validate_dwh_fact_listening_data(dwh_fact_table: pd.DataFrame) -> Dict[str, 
         try:
             result4 = _validate_dwh_time_logic(dwh_fact_table, validation_results)
             results.append(result4)
-            logger.info(f"Rule 4 (time logic): {'PASSED' if result4 else 'FAILED'}")
+            # logger.info(f"Rule 4 (time logic): {'PASSED' if result4 else 'FAILED'}")
         except Exception as e:
             logger.error(f"Rule 4 execution failed: {e}")
             validation_results["failed_checks"].append(f"time logic check execution failed: {e}")
@@ -99,7 +99,7 @@ def validate_dwh_fact_listening_data(dwh_fact_table: pd.DataFrame) -> Dict[str, 
         try:
             result5 = _validate_foreign_keys(dwh_fact_table, validation_results)
             results.append(result5)
-            logger.info(f"Rule 5 (foreign keys): {'PASSED' if result5 else 'FAILED'}")
+            # logger.info(f"Rule 5 (foreign keys): {'PASSED' if result5 else 'FAILED'}")
         except Exception as e:
             logger.error(f"Rule 5 execution failed: {e}")
             validation_results["failed_checks"].append(f"foreign key check execution failed: {e}")
@@ -291,117 +291,6 @@ def _generate_summary(results: Dict) -> Dict:
         "warning_count": len(results["warnings"]),
         "success_rate": len(results["passed_checks"]) / total_checks if total_checks > 0 else 0
     }
-
-
-# Quick test function for debugging
-# def debug_validation(df: pd.DataFrame):
-#     """Debug function to help identify issues"""
-#     print("🔍 DEBUG: DataFrame Info")
-#     print(f"Shape: {df.shape}")
-#     print(f"Columns: {list(df.columns)}")
-#     print(f"Data types:\n{df.dtypes}")
-    
-#     if len(df) > 0:
-#         print(f"\nFirst few rows:\n{df.head()}")
-        
-#         # Check for specific issues
-#         if 'listening_minutes' in df.columns:
-#             print(f"\nlistening_minutes stats:")
-#             print(f"  Min: {df['listening_minutes'].min()}")
-#             print(f"  Max: {df['listening_minutes'].max()}")
-#             print(f"  Nulls: {df['listening_minutes'].isnull().sum()}")
-        
-#         if 'hour_of_day' in df.columns:
-#             print(f"\nhour_of_day stats:")
-#             print(f"  Min: {df['hour_of_day'].min()}")
-#             print(f"  Max: {df['hour_of_day'].max()}")
-#             print(f"  Nulls: {df['hour_of_day'].isnull().sum()}")
-            
-#         # Enhanced datetime debugging
-#         for datetime_col in ['played_at', 'created_at']:
-#             if datetime_col in df.columns:
-#                 print(f"\n{datetime_col} info:")
-#                 print(f"  Type: {df[datetime_col].dtype}")
-#                 print(f"  Nulls: {df[datetime_col].isnull().sum()}")
-                
-#                 if hasattr(df[datetime_col].dtype, 'tz'):
-#                     print(f"  Timezone: {df[datetime_col].dt.tz}")
-#                 else:
-#                     print("  No timezone info available")
-                    
-#                 # Check for timezone-aware vs timezone-naive
-#                 sample_value = df[datetime_col].dropna().iloc[0] if len(df[datetime_col].dropna()) > 0 else None
-#                 if sample_value is not None:
-#                     print(f"  Sample value: {sample_value}")
-#                     if hasattr(sample_value, 'tzinfo'):
-#                         print(f"  Sample timezone: {sample_value.tzinfo}")
-    
-#     print("\n" + "="*50)
-
-
-# Usage example and testing function
-# def test_validator_with_sample_data():
-#     """Test the validator with sample data"""
-#     import numpy as np
-    
-#     # Create sample test data
-#     sample_data = pd.DataFrame({
-#         'listening_key': [1, 2, 3, 4, 5],
-#         'date_key': [1, 2, 3, 4, 5],
-#         'track_key': [101, 102, 103, 104, None],  # One null foreign key
-#         'artist_key': [201, 202, 203, 204, 205],
-#         'album_key': [301, 302, 303, 304, 305],
-#         'play_count': [1, 1, 1, 1, 1],
-#         'listening_minutes': [3.5, 4.2, 2800.0, 0.5, 180.0],  # One invalid (2800 > 1440)
-#         'hour_of_day': [14, 9, 25, 16, 20],  # One invalid (25 > 23)
-#         'is_weekend': [False, True, False, False, True],
-#         'played_at': [
-#             datetime(2024, 1, 1, 14, 30, tzinfo=timezone.utc),
-#             datetime(2024, 1, 2, 9, 15, tzinfo=timezone.utc),
-#             datetime(2024, 1, 3, 18, 45, tzinfo=timezone.utc),
-#             datetime(2090, 1, 4, 16, 20, tzinfo=timezone.utc),  # Future time
-#             datetime(2024, 1, 5, 20, 10, tzinfo=timezone.utc)
-#         ],
-#         'created_at': [
-#             datetime(2024, 1, 1, 14, 35, tzinfo=timezone.utc),
-#             datetime(2024, 1, 2, 9, 20, tzinfo=timezone.utc),
-#             datetime(2024, 1, 3, 18, 50, tzinfo=timezone.utc),
-#             datetime(2090, 1, 4, 16, 25, tzinfo=timezone.utc),
-#             datetime(2024, 1, 5, 20, 15, tzinfo=timezone.utc)
-#         ]
-#     })
-    
-#     print("Testing DWH Fact Table Validator with sample data...")
-    
-#     # Debug first
-#     debug_validation(sample_data)
-    
-#     # Run validation
-#     results = validate_dwh_fact_listening_data(sample_data)
-    
-#     print("\n" + "="*50)
-#     print("VALIDATION RESULTS")
-#     print("="*50)
-#     print(f"Total Records: {results['total_records']}")
-#     print(f"Success: {results['success']}")
-#     print(f"\nPassed Checks ({len(results['passed_checks'])}):")
-#     for check in results['passed_checks']:
-#         print(f"  ✅ {check}")
-    
-#     print(f"\nFailed Checks ({len(results['failed_checks'])}):")
-#     for check in results['failed_checks']:
-#         print(f"  ❌ {check}")
-        
-#     print(f"\nWarnings ({len(results['warnings'])}):")
-#     for warning in results['warnings']:
-#         print(f"  ⚠️  {warning}")
-        
-#     print(f"\nSummary:")
-#     for key, value in results['summary'].items():
-#         print(f"  {key}: {value}")
-    
-#     return results
-
 
 # Main execution
 if __name__ == "__main__":

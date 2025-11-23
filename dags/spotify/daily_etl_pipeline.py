@@ -27,6 +27,9 @@ project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.insert(0, project_root)
 
 from data_quality.dwh_fact_validator import validate_dwh_fact_listening_data
+from data_quality.dim_album_validator import validate_dim_album_data
+from data_quality.dim_artist_validator import validate_dim_artist_data
+from data_quality.dim_track_validator import validate_dim_track_data
 
 # ============================================================================
 # DAG Settings
@@ -724,18 +727,38 @@ def check_dwh_fact_data_quality(**context):
     try:
         pg_conn, mongo_conn = get_db_connections()
         
+        # Check dwh.fact_listening data
         query = "SELECT * FROM dwh.fact_listening LIMIT 200;"
         df = pg_conn.execute_query(query)
-        
-        # Transform to DataFrame
         df = pd.DataFrame(df)
+        validation_fact_listening = validate_dwh_fact_listening_data(df)
 
-        validation_results = validate_dwh_fact_listening_data(df)
-        logging.info(f"Data Quality Validation Results: {validation_results}")
-        
+        # Check dwh.dim_album data
+        query = "SELECT * FROM dwh.dim_albums LIMIT 100;"
+        df = pg_conn.execute_query(query)
+        df = pd.DataFrame(df)
+        validation_dim_album = validate_dim_album_data(df)
+
+        # Check dwh.dim_artist data
+        query = "SELECT * FROM dwh.dim_artists LIMIT 100;"
+        df = pg_conn.execute_query(query)
+        df = pd.DataFrame(df)
+        validation_dim_artist = validate_dim_artist_data(df)
+
+        # Check dwh.dim_track data
+        query = "SELECT * FROM dwh.dim_tracks LIMIT 100;"
+        df = pg_conn.execute_query(query)
+        df = pd.DataFrame(df)
+        validation_dim_track = validate_dim_track_data(df)
+
         return {
             'status': 'SUCCESS',
-            'validation_results': validation_results
+            'validation_results': {
+                'fact_listening': validation_fact_listening,
+                'dim_album': validation_dim_album,
+                'dim_artist': validation_dim_artist,
+                'dim_track': validation_dim_track
+            }
         }
         
     except Exception as e:
