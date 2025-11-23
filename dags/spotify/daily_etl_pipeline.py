@@ -13,6 +13,7 @@ import os
 sys.path.append('/Users/desmond/airflow')
 
 from utils.database import MongoDBConnection, PostgreSQLConnection
+from utils.lineage_tracker import LineageTracker, create_lineage_record, log_etl_lineage
 from utils.config import load_config
 import logging
 import pandas as pd
@@ -94,7 +95,6 @@ def get_last_sync_timestamp(**context) -> str:
         yesterday = datetime.now(timezone.utc) - timedelta(days=1)
         return yesterday.isoformat()
 
-
 def get_db_connections():
     """Create and return database connections"""
     try:
@@ -121,6 +121,11 @@ def get_db_connections():
 
 def sync_listening_to_raw_staging(**context):
     """Sync listening data from MongoDB to Raw Staging"""
+    execution_start = datetime.now(timezone.utc)
+    batch_id = context.get('ds_nodash', 'unknown') + '_listening_sync'
+    dag_id = context['dag'].dag_id
+    task_id = context['task'].task_id
+
     try:
         pg_conn, mongo_conn = get_db_connections()
         cursor = pg_conn.connection.cursor()
@@ -216,6 +221,21 @@ def sync_listening_to_raw_staging(**context):
         if new_records:
             latest_time = max(r.get('batch_info', {}).get('collected_at') for r in new_records)
             logging.info(f"Sync completed: {inserted_count}/{len(new_records)} records inserted")
+            lineage_records = [
+                create_lineage_record(
+                    source_system='mongodb_atlas',
+                    source_table='daily_listening_history',
+                    target_system='supabase_pg', 
+                    target_table='raw_staging.spotify_listening_raw',
+                    transformation_type='direct_copy',
+                    transformation_function='sync_listening_to_raw_staging',
+                    records_processed=inserted_count,
+                    records_successful=inserted_count,
+                    execution_start=execution_start,
+                    execution_end=datetime.now(timezone.utc)
+                )
+            ]
+            log_etl_lineage(batch_id, dag_id, task_id, lineage_records)
             return {
                 'status': 'SUCCESS',
                 'records_processed': inserted_count,
@@ -237,6 +257,11 @@ def sync_listening_to_raw_staging(**context):
 
 def process_time_fields(**context):
     """Process time fields and load into Clean Staging"""
+    execution_start = datetime.now(timezone.utc)
+    batch_id = context.get('ds_nodash', 'unknown') + '_time_processing'
+    dag_id = context['dag'].dag_id 
+    task_id = context['task'].task_id
+
     try:
         pg_conn, mongo_conn = get_db_connections()
         cursor = pg_conn.connection.cursor()
@@ -290,7 +315,24 @@ def process_time_fields(**context):
         inserted_count = cursor.rowcount
         pg_conn.connection.commit()
         
-        logging.info(f"Time field processing completed: {inserted_count} records inserted")
+        # Log lineage
+        lineage_records = [
+            create_lineage_record(
+                source_system='supabase_pg',
+                source_table='raw_staging.spotify_listening_raw',
+                target_system='supabase_pg',
+                target_table='clean_staging.listening_cleaned', 
+                transformation_type='calculation',
+                transformation_function='process_time_fields',
+                transformation_logic='Time extraction: played_date, played_hour, time_period, is_weekend',
+                records_processed=inserted_count,
+                records_successful=inserted_count,
+                execution_start=execution_start,
+                execution_end=datetime.now(timezone.utc)
+            )
+        ]
+        
+        log_etl_lineage(batch_id, dag_id, task_id, lineage_records)
         return {'status': 'SUCCESS', 'records_processed': inserted_count}
         
     except Exception as e:
@@ -311,6 +353,11 @@ def process_time_fields(**context):
 
 def sync_tracks_to_dwh(**context):
     """Sync tracks to dimension table"""
+    execution_start = datetime.now(timezone.utc)
+    batch_id = context.get('ds_nodash', 'unknown') + '_tracks_sync'
+    dag_id = context['dag'].dag_id
+    task_id = context['task'].task_id
+
     try:
         pg_conn, mongo_conn = get_db_connections()
         cursor = pg_conn.connection.cursor()
@@ -339,6 +386,25 @@ def sync_tracks_to_dwh(**context):
         affected_count = cursor.rowcount
         pg_conn.connection.commit()
 
+        # Log lineage
+        lineage_records = [
+            create_lineage_record(
+                source_system='supabase_pg',
+                source_table='clean_staging.listening_cleaned',
+                target_system='supabase_pg',
+                target_table='dwh.dim_tracks',
+                transformation_type='lookup',
+                transformation_function='sync_tracks_to_dwh',
+                transformation_logic='Extract unique tracks: track_id, track_name, duration_minutes, first_heard',
+                records_processed=affected_count,
+                records_successful=affected_count,
+                execution_start=execution_start,
+                execution_end=datetime.now(timezone.utc)
+            )
+        ]
+        
+        log_etl_lineage(batch_id, dag_id, task_id, lineage_records)
+
         logging.info(f"Sync completed: {affected_count} tracks inserted into dimension table")
         return {'status': 'SUCCESS', 'tracks_synced': affected_count}
         
@@ -356,6 +422,11 @@ def sync_tracks_to_dwh(**context):
 
 def sync_artists_to_dwh(**context):
     """Sync artists to dimension table"""
+    execution_start = datetime.now(timezone.utc)
+    batch_id = context.get('ds_nodash', 'unknown') + '_artists_sync'
+    dag_id = context['dag'].dag_id
+    task_id = context['task'].task_id
+
     try:
         pg_conn, mongo_conn = get_db_connections()
         cursor = pg_conn.connection.cursor()
@@ -382,6 +453,25 @@ def sync_artists_to_dwh(**context):
         affected_count = cursor.rowcount
         pg_conn.connection.commit()
 
+        # Log lineage
+        lineage_records = [
+            create_lineage_record(
+                source_system='supabase_pg',
+                source_table='clean_staging.listening_cleaned',
+                target_system='supabase_pg',
+                target_table='dwh.dim_artists',
+                transformation_type='lookup',
+                transformation_function='sync_artists_to_dwh',
+                transformation_logic='Extract unique artists: MD5(artist_name) as artist_id, artist_name, first_discovered',
+                records_processed=affected_count,
+                records_successful=affected_count,
+                execution_start=execution_start,
+                execution_end=datetime.now(timezone.utc)
+            )
+        ]
+        
+        log_etl_lineage(batch_id, dag_id, task_id, lineage_records)
+
         logging.info(f"Sync completed: {affected_count} artists inserted into dimension table")
         return {'status': 'SUCCESS', 'artists_synced': affected_count}
         
@@ -399,6 +489,11 @@ def sync_artists_to_dwh(**context):
 
 def sync_albums_to_dwh(**context):
     """Sync albums to dimension table"""
+    execution_start = datetime.now(timezone.utc)
+    batch_id = context.get('ds_nodash', 'unknown') + '_albums_sync'
+    dag_id = context['dag'].dag_id
+    task_id = context['task'].task_id
+
     try:
         pg_conn, mongo_conn = get_db_connections()
         cursor = pg_conn.connection.cursor()
@@ -425,6 +520,25 @@ def sync_albums_to_dwh(**context):
         affected_count = cursor.rowcount
         pg_conn.connection.commit()
 
+        # Log lineage
+        lineage_records = [
+            create_lineage_record(
+                source_system='supabase_pg',
+                source_table='clean_staging.listening_cleaned',
+                target_system='supabase_pg',
+                target_table='dwh.dim_albums',
+                transformation_type='lookup',
+                transformation_function='sync_albums_to_dwh',
+                transformation_logic='Extract unique albums: MD5(album_name) as album_id, album_name, first_heard',
+                records_processed=affected_count,
+                records_successful=affected_count,
+                execution_start=execution_start,
+                execution_end=datetime.now(timezone.utc)
+            )
+        ]
+        
+        log_etl_lineage(batch_id, dag_id, task_id, lineage_records)
+
         logging.info(f"Sync completed: {affected_count} albums inserted into dimension table")
         return {'status': 'SUCCESS', 'albums_synced': affected_count}
         
@@ -446,6 +560,11 @@ def sync_albums_to_dwh(**context):
 
 def load_to_warehouse(**context):
     """Load to fact table - fixed version"""
+    execution_start = datetime.now(timezone.utc)
+    batch_id = context.get('ds_nodash', 'unknown') + '_warehouse_load'
+    dag_id = context['dag'].dag_id
+    task_id = context['task'].task_id
+
     try:
         pg_conn, mongo_conn = get_db_connections()
         cursor = pg_conn.connection.cursor()
@@ -481,6 +600,25 @@ def load_to_warehouse(**context):
         cursor.execute(insert_sql)
         inserted_count = cursor.rowcount
         pg_conn.connection.commit()
+
+        # Log lineage
+        lineage_records = [
+            create_lineage_record(
+                source_system='supabase_pg',
+                source_table='clean_staging.listening_cleaned',
+                target_system='supabase_pg',
+                target_table='dwh.fact_listening',
+                transformation_type='join',
+                transformation_function='load_to_warehouse',
+                transformation_logic='JOIN with dim_dates, dim_tracks, dim_artists, dim_albums',
+                records_processed=inserted_count,
+                records_successful=inserted_count,
+                execution_start=execution_start,
+                execution_end=datetime.now(timezone.utc)
+            )
+        ]
+        
+        log_etl_lineage(batch_id, dag_id, task_id, lineage_records)
 
         logging.info(f"Sync completed: {inserted_count} records inserted into fact table")
 
