@@ -12,6 +12,7 @@ pg = st.navigation([
     st.Page("track.py", title="Track"),
     st.Page("artist.py", title="Artist"),
     st.Page("album.py", title="Album"),
+    st.Page("data_quality.py", title="Data Quality"),
     st.Page("about.py", title="About"),
 ])
 
