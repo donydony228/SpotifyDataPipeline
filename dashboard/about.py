@@ -90,11 +90,11 @@ with col2:
     st.write("- Medallion Architecture")
 
 with col3:
-    st.subheader("Visualization")
+    st.subheader("Visualization & Monitoring")
     st.write("- Streamlit Framework")
     st.write("- Plotly Interactive Charts")
-    st.write("- Real-time Data Updates")
-    st.write("- Responsive Design")
+    st.write("- Grafana Monitoring")
+    st.write("- Automated Alerting")
 
 st.markdown("---")
 
@@ -131,10 +131,10 @@ st.header("Platform Statistics")
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
-    st.metric("Days of Data Collection", "300+", delta="Growing daily")
+    st.metric("Days of Data Collection", "100+", delta="Growing daily")
 
 with col2:
-    st.metric("ETL Pipeline Runs", "50+", delta="Automated daily")
+    st.metric("ETL Pipeline Runs", "100+", delta="Automated daily")
 
 with col3:
     st.metric("Data Processing Accuracy", "99.8%", delta="High reliability")
@@ -144,26 +144,71 @@ with col4:
 
 st.markdown("---")
 
-# Implementation highlights
-st.header("Implementation Highlights")
+# Core Architecture Highlights
+st.header("🏗️ Core Architecture Highlights")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    st.subheader("Real-time ETL Pipeline")
-    st.write("**Key Features:**")
-    st.write("- Daily automated data collection at 2 AM")
-    st.write("- Comprehensive error handling and retry logic")
-    st.write("- Data quality validation at each stage")
-    st.write("- Monitoring and alerting capabilities")
+    st.subheader("Modern Data Engineering Architecture")
+    st.write("**Medallion Architecture**: Bronze (MongoDB) → Silver (Clean Staging) → Gold (DWH)")
+    st.write("**Microservice Design**: Modular ETL components")
+    st.write("**Cloud Native**: MongoDB Atlas + Supabase PostgreSQL")
+    st.write("**Native Deployment**: Lightweight virtual environment-based deployment")
 
 with col2:
-    st.subheader("Advanced Analytics")
-    st.write("**Technical Capabilities:**")
-    st.write("- Star schema data warehouse design")
-    st.write("- Time-series analysis and trend detection")
-    st.write("- Machine learning-ready data structure")
-    st.write("- Scalable aggregation tables")
+    st.subheader("Data Pipeline Engineering")
+    st.write("**Real-time ETL Pipeline**: Apache Airflow orchestrated daily automation")
+    st.write("**Incremental Sync**: Intelligent timestamp-based incremental updates")
+    st.write("**Error Handling & Retry**: Complete failure recovery strategy")
+    st.write("**Batch Processing**: psycopg2 execute_values performance optimization")
+
+st.markdown("---")
+
+# Technical Innovation
+st.header("🔧 Technical Innovation")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Multi-source Data Extraction")
+    st.write("**Dual API Clients**: Python requests + cURL backup mechanism")
+    st.write("**Smart Deduplication**: MongoDB upsert prevents duplicate data")
+    st.write("**Batch Optimization**: Up to 50 tracks processed in single batch")
+
+    st.subheader("Data Warehouse Design")
+    st.write("**Star Schema**: Fact table + 4 dimension tables standard DWH design")
+    st.write("**Time Series Optimization**: Dedicated date dimension table")
+    st.write("**Pre-computed Aggregations**: Daily/weekly statistics pre-calculation")
+    st.write("**Index Strategy**: Precision indexing for query patterns")
+
+with col2:
+    st.subheader("Advanced Data Quality Management")
+    st.write("**Custom Validation Framework**: 5 major validation rule categories")
+    st.write("**Real-time Quality Monitoring**: Quality checks integrated in ETL flow")
+    st.write("**Data Lineage Tracking**: Complete end-to-end data flow recording")
+    st.write("**Anomaly Detection**: Automatic quality issue flagging")
+
+st.markdown("---")
+
+# Data Governance
+st.header("🔍 Data Governance")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("Complete Data Lineage System")
+    st.write("**Automatic Lineage Tracking**: Records every data transformation step")
+    st.write("**Impact Analysis**: Upstream/downstream dependency analysis")
+    st.write("**Network Graph Visualization**: NetworkX-based lineage relationship graph")
+    st.write("**Execution Monitoring**: Real-time ETL execution status tracking")
+
+with col2:
+    st.subheader("Monitoring & Alerting System")
+    st.write("**Grafana Monitoring**: System performance and data quality monitoring")
+    st.write("**Automated Alerting**: Real-time notifications for anomalous conditions")
+    st.write("**Metrics Tracking**: Key indicators like ETL success rate, data volume, execution time")
+    st.write("**Visual Monitoring Dashboard**: Real-time system health status display")
 
 st.markdown("---")
 
@@ -204,18 +249,10 @@ with col1:
     and data collection through to advanced analytics and visualization.
     """)
 
-    st.subheader("Key Learning Outcomes")
-    st.write("""
-    - **API Integration:** Working with OAuth 2.0 and RESTful APIs
-    - **Data Engineering:** Building robust ETL pipelines with Apache Airflow
-    - **Database Design:** Implementing both document and relational database patterns
-    - **Data Visualization:** Creating interactive dashboards with Streamlit and Plotly
-    - **Cloud Services:** Deploying and managing cloud-based data infrastructure
-    """)
 with col2:
     st.image("dashboard/2fqdcir.jpg", width=500)
 
 st.markdown("---")
 
 # Footer
-st.caption("Powered by Spotify Web API • Apache Airflow • MongoDB • PostgreSQL • Streamlit")
+st.caption("Powered by Spotify Web API • Apache Airflow • MongoDB • PostgreSQL • Streamlit • Grafana")
