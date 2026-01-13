@@ -12,11 +12,11 @@ help: ## Show this help message
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-25s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 # ============================================================================
-# Airflow Service Management
+# Airflow Service Management (Updated for SequentialExecutor)
 # ============================================================================
 
 airflow-start: ## Start Airflow (webserver + scheduler)
-	@echo "Starting Airflow service..."
+	@echo "Starting Airflow service with SequentialExecutor..."
 	@if pgrep -f "airflow" > /dev/null; then \
 		echo "Airflow is already running, stopping existing service..."; \
 		make airflow-stop; \
@@ -24,13 +24,16 @@ airflow-start: ## Start Airflow (webserver + scheduler)
 	fi
 	@echo "Setting AIRFLOW_HOME=$(PWD)"
 	@export AIRFLOW_HOME=$(PWD) && \
+	export AIRFLOW__CORE__EXECUTOR=SequentialExecutor && \
+	export AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:///$(PWD)/airflow.db && \
+	export AIRFLOW__CORE__LOAD_EXAMPLES=False && \
+	export AIRFLOW__CORE__DAGS_FOLDER=$(PWD)/dags && \
+	export AIRFLOW__WEBSERVER__EXPOSE_CONFIG=True && \
+	export AIRFLOW__LOGGING__LOGGING_LEVEL=INFO && \
 	source venv/bin/activate && \
-	echo "Starting Webserver (background)..." && \
-	airflow webserver --port 8080 --daemon && \
-	sleep 5 && \
-	echo "Starting Scheduler (background)..." && \
-	airflow scheduler --daemon && \
-	sleep 3
+	echo "Starting Airflow standalone..." && \
+	nohup airflow standalone > airflow.log 2>&1 & echo $$! > airflow.pid
+	@sleep 8
 	@echo ""
 	@make airflow-status
 
@@ -38,12 +41,14 @@ airflow-stop: ## Stop all Airflow services
 	@echo "Stopping Airflow service..."
 	@pkill -f "airflow webserver" 2>/dev/null || true
 	@pkill -f "airflow scheduler" 2>/dev/null || true
+	@pkill -f "airflow standalone" 2>/dev/null || true
 	@pkill -f "gunicorn.*airflow" 2>/dev/null || true
 	@sleep 2
 	@if pgrep -f "airflow" > /dev/null; then \
 		echo "Force stopping lingering processes..."; \
 		pkill -9 -f "airflow" 2>/dev/null || true; \
 	fi
+	@rm -f airflow.pid
 	@echo "Airflow service has been stopped"
 
 airflow-restart: ## Restart Airflow service
@@ -54,41 +59,42 @@ airflow-restart: ## Restart Airflow service
 airflow-status: ## Check Airflow service status
 	@echo "Airflow service status"
 	@echo "==================="
-	@if pgrep -f "airflow webserver" > /dev/null; then \
-		echo "🌐 Webserver: Running"; \
+	@if pgrep -f "airflow" > /dev/null; then \
+		echo "🌐 Airflow: Running"; \
 		echo "   URL: http://localhost:8080"; \
 		echo "   Username: admin / Password: admin123"; \
 	else \
-		echo "🌐 Webserver: Not running"; \
-	fi
-	@if pgrep -f "airflow scheduler" > /dev/null; then \
-		echo "📅 Scheduler: Running"; \
-	else \
-		echo "📅 Scheduler: Not running"; \
+		echo "🌐 Airflow: Not running"; \
 	fi
 	@echo ""
 	@if curl -s http://localhost:8080/health > /dev/null 2>&1; then \
-		echo "Connection Test: Webserver is reachable"; \
+		echo "Connection Test: Airflow is reachable"; \
 	else \
-		echo "Connection Test: Webserver is not reachable"; \
+		echo "Connection Test: Airflow is not reachable"; \
 	fi
+	@echo ""
+	@echo "Current Configuration:"
+	@export AIRFLOW_HOME=$(PWD) && airflow config get-value core executor 2>/dev/null | sed 's/^/  Executor: /' || echo "  Executor: Not available"
+	@export AIRFLOW_HOME=$(PWD) && airflow config get-value database sql_alchemy_conn 2>/dev/null | sed 's/^/  Database: /' || echo "  Database: Not available"
 
 airflow-logs: ## View Airflow logs (tail -f)
 	@echo "Airflow logs (Press Ctrl+C to exit)"
 	@echo "=========================="
-	@if [ -f "logs/scheduler/latest/*.log" ]; then \
+	@if [ -f "airflow.log" ]; then \
+		tail -f airflow.log; \
+	elif [ -f "logs/scheduler/latest/*.log" ]; then \
 		tail -f logs/scheduler/latest/*.log; \
 	else \
-		echo "Scheduler log file does not exist, showing DAG processing logs..."; \
-		find logs -name "*.log" -type f -exec tail -20 {} \; 2>/dev/null || echo "No log files found"; \
+		echo "No log files found. Try: make airflow-start"; \
 	fi
 
 clean-airflow: ## Clean Airflow environment (DB, logs, configs)
 	@echo "Cleaning Airflow environment..."
 	@make airflow-stop
-	@rm -f airflow.db airflow.cfg
+	@rm -f airflow.db airflow.cfg airflow.log airflow.pid
 	@rm -rf logs/*
 	@rm -f webserver_config.py
+	@rm -f standalone_admin_password.txt
 	@echo "Airflow environment has been cleaned"
 
 # ============================================================================
@@ -139,8 +145,11 @@ spotify-test: ## Test Spotify API connection
 
 dag-test: ## Test DAG loading
 	@echo "Testing DAG loading..."
-	@source venv/bin/activate && \
-	export AIRFLOW_HOME=$(PWD) && \
+	@export AIRFLOW_HOME=$(PWD) && \
+	export AIRFLOW__CORE__EXECUTOR=SequentialExecutor && \
+	export AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:///$(PWD)/airflow.db && \
+	export AIRFLOW__CORE__DAGS_FOLDER=$(PWD)/dags && \
+	source venv/bin/activate && \
 	python -c "\
 	import sys; \
 	sys.path.append('$(PWD)'); \
@@ -162,6 +171,7 @@ dag-test: ## Test DAG loading
 clean-logs: ## Clean log files
 	@echo "Cleaning log files..."
 	@rm -rf logs/*
+	@rm -f airflow.log
 	@echo "Log files have been cleaned"
 
 clean-pyc: ## Clean Python bytecode files
@@ -183,6 +193,26 @@ dev-start: ## Start development environment
 	@make env-setup
 	@make venv-setup
 	@echo ""
+	@echo "Ensuring Airflow database is initialized..."
+	@export AIRFLOW_HOME=$(PWD) && \
+	export AIRFLOW__CORE__EXECUTOR=SequentialExecutor && \
+	export AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=sqlite:///$(PWD)/airflow.db && \
+	export AIRFLOW__CORE__LOAD_EXAMPLES=False && \
+	export AIRFLOW__CORE__DAGS_FOLDER=$(PWD)/dags && \
+	source venv/bin/activate && \
+	if [ ! -f "airflow.db" ]; then \
+		echo "Initializing Airflow database..."; \
+		airflow db init; \
+		echo "Creating admin user..."; \
+		airflow users create \
+			--username admin \
+			--firstname Admin \
+			--lastname User \
+			--role Admin \
+			--email admin@example.com \
+			--password admin123 || true; \
+	fi
+	@echo ""
 	@echo "Testing environment..."
 	@make spotify-test
 	@make db-test
@@ -192,6 +222,7 @@ dev-start: ## Start development environment
 	@echo ""
 	@echo "Development environment started successfully!"
 	@echo "Access http://localhost:8080"
+	@echo "Username: admin / Password: admin123"
 	@echo "Check status: make airflow-status"
 	@echo "Check logs: make airflow-logs"
 
@@ -211,6 +242,10 @@ info: ## Display project and environment information
 	@echo "Project Directory: $(PWD)"
 	@echo "Python Version: $(shell python3 --version 2>/dev/null || echo 'Not found')"
 	@echo "Airflow Version: $(shell source venv/bin/activate && airflow version 2>/dev/null || echo 'Not installed')"
+	@echo ""
+	@echo "Airflow Configuration:"
+	@export AIRFLOW_HOME=$(PWD) && airflow config get-value core executor 2>/dev/null | sed 's/^/  Executor: /' || echo "  Executor: Not configured"
+	@export AIRFLOW_HOME=$(PWD) && airflow config get-value database sql_alchemy_conn 2>/dev/null | sed 's/^/  Database: /' || echo "  Database: Not configured"
 	@echo ""
 	@echo "Important Directories:"
 	@echo "  • DAGs: dags/spotify/"
